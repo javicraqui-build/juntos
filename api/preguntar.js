@@ -1,5 +1,6 @@
 // /api/preguntar — asistente de juntos. Verifica la sesión de Supabase y llama a la API de Anthropic.
-// Variables de entorno en Vercel: ANTHROPIC_API_KEY (obligatoria), ANTHROPIC_MODEL (opcional).
+// Variables de entorno en Vercel: ANTHROPIC_API_KEY (obligatoria), ANTHROPIC_MODEL (opcional),
+// ANTHROPIC_WORKSPACE_ID (solo si la clave no está asociada a un workspace en la consola de Anthropic).
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://eidspdbyvbyjntkxiavz.supabase.co';
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || 'sb_publishable_DTQwi_Yr3RK3oZa1qT_tVQ_Wd7VmZ66';
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
@@ -50,13 +51,18 @@ export default async function handler(req, res) {
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', ...(process.env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': process.env.ANTHROPIC_WORKSPACE_ID } : {}) },
       body: JSON.stringify({ model: MODEL, max_tokens: 700, temperature: 0.4, system: REGLAS, messages })
     });
     const j = await r.json();
     if (!r.ok) {
       console.error('anthropic', r.status, JSON.stringify(j).slice(0, 500));
-      const msg = r.status === 429 ? 'Demasiadas preguntas seguidas. Espera un momento y vuelve a intentarlo.' : r.status === 404 ? 'El modelo configurado no existe. Revisa ANTHROPIC_MODEL en Vercel.' : 'No he podido responder ahora. Inténtalo de nuevo en un momento.';
+      const detail = j?.error?.message || '';
+      const msg = r.status === 429 ? 'Demasiadas preguntas seguidas. Espera un momento y vuelve a intentarlo.'
+        : r.status === 404 ? 'El modelo configurado no existe. Revisa ANTHROPIC_MODEL en Vercel.'
+        : /workspace/i.test(detail) ? 'La clave de Anthropic necesita un workspace: añade ANTHROPIC_WORKSPACE_ID en Vercel o usa una clave creada dentro de un workspace.'
+        : r.status === 401 ? 'La clave de Anthropic no es válida. Revisa ANTHROPIC_API_KEY en Vercel.'
+        : 'No he podido responder ahora. Inténtalo de nuevo en un momento.';
       return res.status(502).json({ error: 'upstream', message: msg });
     }
     const text = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();

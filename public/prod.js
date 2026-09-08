@@ -2,13 +2,13 @@
 const SB_URL = window.JUNTOS_CONFIG.supabaseUrl, SB_KEY = window.JUNTOS_CONFIG.supabaseKey;
 if (typeof supabase === 'undefined') { document.getElementById('app').innerHTML = '<div class="onb"><div class="grow"></div><div class="logo">juntos</div><p class="tag">No se pudo cargar la app. Revisa la conexión y vuelve a intentarlo.</p><div class="grow"></div></div>'; throw new Error('supabase-js no cargó'); }
 const sb = supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
-let SESSION = null, WS = null, AUTH_READY = false, AI_OK = null, CHAN = null, MAIL_SENT = '';
+let SESSION = null, WS = null, AUTH_READY = false, AI_OK = null, CHAN = null;
 
 // --- render con puerta de autenticación ---
 function render(){
   const app = $('#app');
   if (!AUTH_READY) { app.innerHTML = `<div class="onb"><div class="grow"></div><div class="logo">juntos</div><p class="tag">Cargando…</p><div class="grow"></div></div>`; return; }
-  if (!SESSION) { app.innerHTML = renderLogin(); $('.tabbar')?.remove(); return; }
+  if (!SESSION || RECOVERY) { app.innerHTML = renderLogin(); $('.tabbar')?.remove(); return; }
   if (!S || !S.pregnancy?.lmp) { app.innerHTML = renderOnboarding(); $('.tabbar')?.remove(); window.scrollTo(0,0); return; }
   if (OB.step === 5) { app.innerHTML = renderOnboarding(); $('.tabbar')?.remove(); window.scrollTo(0,0); return; }
   if (!L.role) { app.innerHTML = renderRolePick(); $('.tabbar')?.remove(); return; }
@@ -20,27 +20,66 @@ function render(){
   if (L.tab === 'preguntar') { const c = $('#chat'); if (c) window.scrollTo(0, document.body.scrollHeight); }
 }
 
-// --- login por enlace mágico ---
+// --- acceso con correo y contraseña ---
+let AUTH_MODE = 'login', AUTH_MSG = '', AUTH_BUSY = false, RECOVERY = false;
 function renderLogin(){
-  if (MAIL_SENT) return `<div class="onb"><div class="grow"></div><div class="logo">juntos</div><p class="tag">Revisa tu correo</p>
-    <div class="card" style="margin-top:22px"><p class="sub">Te hemos enviado un enlace a <b>${esc(MAIL_SENT)}</b>. Ábrelo desde este mismo móvil y entrarás directamente.</p><p class="sub" style="margin-top:10px;font-size:13px;color:var(--ink3)">Si no llega en un par de minutos, mira en la carpeta de correo no deseado.</p></div>
-    <div style="margin-top:14px"><button class="link" onclick="MAIL_SENT=''; render()">Usar otro correo</button></div><div class="grow"></div></div>`;
-  const code = L.pendingCode ? `<div class="card accent" style="margin-bottom:16px"><span class="eyebrow">Invitación</span><p class="sub" style="margin-top:4px">Tienes un código para unirte al espacio de tu pareja: <b>${esc(L.pendingCode)}</b>. Entra con tu correo y te unimos.</p></div>` : '';
+  if (RECOVERY) return `<div class="onb"><div class="grow"></div><div class="logo">juntos</div><p class="tag">Elige una contraseña nueva</p>
+    <form style="margin-top:22px" onsubmit="event.preventDefault(); nuevaContrasena(this.password.value)">
+      <div class="field"><label>Contraseña nueva</label><input name="password" type="password" autocomplete="new-password" minlength="8" required placeholder="Mínimo 8 caracteres"></div>
+      ${AUTH_MSG ? `<p class="sub" style="color:var(--red);margin-bottom:12px">${esc(AUTH_MSG)}</p>` : ''}
+      <button class="btn block" type="submit" ${AUTH_BUSY?'disabled':''}>Guardar y entrar</button>
+    </form><div class="grow"></div></div>`;
+  const signup = AUTH_MODE === 'signup';
+  const code = L.pendingCode ? `<div class="card accent" style="margin-bottom:16px"><span class="eyebrow">Invitación</span><p class="sub" style="margin-top:4px">Tienes un código para unirte al espacio de tu pareja: <b>${esc(L.pendingCode)}</b>. Crea tu cuenta o entra y te unimos.</p></div>` : '';
   return `<div class="onb"><div class="grow"></div><div class="logo">juntos</div><p class="tag">El embarazo, juntos.</p>
     <div class="welcome-art"><i style="width:120px;height:120px;background:var(--warm);left:-20px;top:40px;opacity:.85"></i><i style="width:70px;height:70px;background:var(--accent-soft);right:60px;top:30px;opacity:.9"></i><i style="width:36px;height:36px;background:#F2DCCB;right:110px;bottom:34px"></i></div>
     ${code}
-    <form onsubmit="event.preventDefault(); login(this.email.value)">
-      <div class="field"><label>Tu correo</label><input name="email" type="email" inputmode="email" autocomplete="email" required placeholder="tu@correo.com"></div>
-      <button class="btn block" type="submit">Enviarme un enlace para entrar</button>
+    <div class="seg"><button class="${!signup?'on':''}" onclick="AUTH_MODE='login'; AUTH_MSG=''; render()">Entrar</button><button class="${signup?'on':''}" onclick="AUTH_MODE='signup'; AUTH_MSG=''; render()">Crear cuenta</button></div>
+    <form onsubmit="event.preventDefault(); acceder(this.email.value, this.password.value)">
+      <div class="field"><label>Correo</label><input name="email" type="email" inputmode="email" autocomplete="email" required placeholder="tu@correo.com"></div>
+      <div class="field"><label>Contraseña</label><input name="password" type="password" autocomplete="${signup?'new-password':'current-password'}" minlength="8" required placeholder="${signup?'Mínimo 8 caracteres':'Tu contraseña'}"></div>
+      ${AUTH_MSG ? `<p class="sub" style="color:var(--red);margin-bottom:12px">${esc(AUTH_MSG)}</p>` : ''}
+      <button class="btn block" type="submit" ${AUTH_BUSY?'disabled':''}>${AUTH_BUSY ? 'Un momento…' : signup ? 'Crear cuenta' : 'Entrar'}</button>
     </form>
-    <p class="disclaimer">Sin contraseñas: te enviamos un enlace de acceso a tu correo. Tus datos solo los ven las dos personas del espacio.</p>
+    ${signup ? '' : `<div style="margin-top:14px;text-align:center"><button class="link" style="color:var(--ink3)" onclick="recuperar()">¿Olvidaste la contraseña?</button></div>`}
+    <p class="disclaimer">Tus datos solo los ven las dos personas del espacio. Sin publicidad ni terceros.</p>
     <div class="grow"></div></div>`;
 }
-async function login(email){
-  email = (email || '').trim(); if (!email) return;
-  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + '/' } });
-  if (error) { alert('No se pudo enviar el enlace: ' + error.message); return; }
-  MAIL_SENT = email; render();
+function errorAuth(e){
+  const m = (e?.message || '').toLowerCase();
+  if (m.includes('invalid login')) return 'Correo o contraseña incorrectos.';
+  if (m.includes('already registered') || m.includes('already been registered')) return 'Ese correo ya tiene cuenta. Usa "Entrar".';
+  if (m.includes('password') && m.includes('least')) return 'La contraseña debe tener al menos 8 caracteres.';
+  if (m.includes('rate limit') || m.includes('too many')) return 'Demasiados intentos seguidos. Espera un momento.';
+  if (m.includes('not confirmed')) return 'Tu correo todavía no está confirmado. Revisa tu bandeja de entrada.';
+  return 'No se pudo completar: ' + (e?.message || 'error desconocido');
+}
+async function acceder(email, password){
+  email = (email || '').trim(); if (!email || !password) return;
+  AUTH_BUSY = true; AUTH_MSG = ''; render();
+  try {
+    if (AUTH_MODE === 'signup') {
+      const { data, error } = await sb.auth.signUp({ email, password });
+      if (error) throw error;
+      if (!data.session) { AUTH_MSG = 'Cuenta creada. Confirma tu correo desde el enlace que te enviamos y vuelve a entrar.'; AUTH_MODE = 'login'; }
+    } else {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    }
+  } catch (e) { AUTH_MSG = errorAuth(e); }
+  AUTH_BUSY = false; if (!SESSION) render();
+}
+async function recuperar(){
+  const email = prompt('Escribe tu correo y te enviamos un enlace para cambiar la contraseña:'); if (!email) return;
+  const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: location.origin + '/' });
+  AUTH_MSG = error ? errorAuth(error) : 'Te hemos enviado un enlace para cambiar la contraseña.'; render();
+}
+async function nuevaContrasena(password){
+  AUTH_BUSY = true; render();
+  const { error } = await sb.auth.updateUser({ password });
+  AUTH_BUSY = false;
+  if (error) { AUTH_MSG = errorAuth(error); render(); return; }
+  RECOVERY = false; AUTH_MSG = ''; toast('Contraseña guardada'); if (SESSION) loadWorkspace(); else render();
 }
 async function logout(){ closeSheet(); await sb.auth.signOut(); SESSION = null; S = null; WS = null; L.role = null; saveLocal(); try { localStorage.removeItem('juntos.ws'); } catch(e){} render(); }
 
@@ -122,7 +161,7 @@ async function empezarDeCero(){
   S = null; WS = null; L.role = null; OB.step = 0; saveLocal(); try { localStorage.removeItem('juntos.ws'); } catch(e){} render();
 }
 function cargarEjemplo(){ if (!confirm('¿Cargar los datos de ejemplo? Se reemplaza lo guardado en este espacio.')) return; const code = WS?.invite_code; S = demoWorkspace(); if (code) S.pregnancy.inviteCode = code; closeSheet(); commit(); }
-function invitacionTxt(){ return `Estamos esperando un bebé y llevamos el embarazo juntos en esta app. Entra con tu correo y usa el código ${S.pregnancy.inviteCode}: ${location.origin}/?invitar=${S.pregnancy.inviteCode}`; }
+function invitacionTxt(){ return `Estamos esperando un bebé y llevamos el embarazo juntos en esta app. Crea tu cuenta con tu correo y usa el código ${S.pregnancy.inviteCode}: ${location.origin}/?invitar=${S.pregnancy.inviteCode}`; }
 
 // --- asistente: API propia ---
 async function preguntar(q){
@@ -154,7 +193,8 @@ async function boot(){
   const { data: { session } } = await sb.auth.getSession();
   SESSION = session; AUTH_READY = true;
   sb.auth.onAuthStateChange((ev, s) => {
-    if (ev === 'SIGNED_IN' && s && (!SESSION || SESSION.user.id !== s.user.id)) { SESSION = s; MAIL_SENT = ''; loadWorkspace(); }
+    if (ev === 'PASSWORD_RECOVERY') { SESSION = s; RECOVERY = true; render(); return; }
+    if (ev === 'SIGNED_IN' && s && (!SESSION || SESSION.user.id !== s.user.id)) { SESSION = s; AUTH_MSG = ''; loadWorkspace(); }
     else if (ev === 'SIGNED_OUT') { SESSION = null; S = null; WS = null; render(); }
     else if (s) SESSION = s;
   });

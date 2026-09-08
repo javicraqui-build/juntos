@@ -21,16 +21,16 @@ Si editas la app, edita esas fuentes y vuelve a generar; o edita `public/` direc
 
 ## Infraestructura
 
-- **Supabase**: proyecto `juntos` (ref `eidspdbyvbyjntkxiavz`, org Pruebas, eu-west-1). Auth por enlace mágico (email).
-- **Vercel**: proyecto `juntos` en el equipo `craqui`. Producción: https://juntos2.vercel.app
+- **Supabase**: proyecto `juntos` (ref `eidspdbyvbyjntkxiavz`, org Pruebas, eu-west-1). Auth con correo y contraseña.
+- **Vercel**: proyecto `juntos` en el equipo `craqui`. Producción: https://juntos-craqui.vercel.app
 - **IA**: `api/preguntar.js` usa `ANTHROPIC_API_KEY` (y opcionalmente `ANTHROPIC_MODEL`) como variables de entorno en Vercel.
 
 ## Pasos pendientes de configuración (una sola vez)
 
 1. **Supabase → Authentication → URL Configuration**
-   - Site URL: `https://juntos2.vercel.app`
-   - Redirect URLs: `https://juntos2.vercel.app/**` (y el dominio propio cuando lo haya)
-   Sin esto, el enlace del correo redirige a `localhost:3000` y no se puede entrar.
+   - Site URL: `https://juntos-craqui.vercel.app`
+   - Redirect URLs: `https://juntos-craqui.vercel.app/**` (y el dominio propio cuando lo haya)
+   Necesario para los enlaces de recuperación de contraseña.
 2. **Supabase → Authentication → Email**: el SMTP por defecto tiene un límite muy bajo de correos por hora.
    Para uso real, configurar SMTP propio (Resend, Postmark, etc.) y personalizar la plantilla "Magic Link" en español.
 3. **Vercel → Settings → Environment Variables**: `ANTHROPIC_API_KEY` (Production). Redeploy después de añadirla.
