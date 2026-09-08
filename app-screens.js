@@ -52,7 +52,7 @@ function renderHoy(){
   </section>
 
   <section class="section"><div class="card">
-    <div class="size"><div class="orb"><img src="/img/tamano/${c.img}.jpg" alt="${esc(c.cmp)}" loading="lazy" width="96" height="96"></div>
+    <div class="size"><div class="orb"><img src="/img/tamano/${c.img}.svg" alt="${esc(c.cmp)}" width="96" height="96"></div>
     <div class="txt"><span class="eyebrow">${porPeso ? 'Peso aproximado' : 'Tamaño aproximado'}</span><h3>${sizeLead}</h3><p>${sizeDetail}</p></div></div>
   </div></section>
 

@@ -81,7 +81,7 @@ p{margin:0}
 /* Baby size */
 .size{display:flex;align-items:center;gap:18px}
 .size .orb{flex:0 0 96px;width:96px;height:96px;border-radius:50%;background:var(--warm-soft);display:grid;place-items:center;overflow:hidden;box-shadow:0 0 0 3px var(--surface),0 0 0 4px var(--line)}
-.size .orb img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.size .orb img{width:88%;height:88%;object-fit:contain}
 .size .orb i{display:block;border-radius:50%;background:radial-gradient(circle at 35% 30%,#E8B39A,var(--warm) 70%);box-shadow:inset -4px -6px 12px rgba(0,0,0,.08)}
 .size .txt h3{font-size:22px;line-height:1.15}
 .size .txt p{color:var(--ink2);font-size:15px;margin-top:4px}
