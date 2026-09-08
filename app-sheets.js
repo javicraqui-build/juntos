@@ -21,8 +21,8 @@ function delBtn(fn){ return `<button type="button" class="btn danger" onclick="$
 function actions(saveLabel, delFn){ return `<div class="actions">${delFn ? delBtn(delFn) : `<button type="button" class="btn ghost" onclick="closeSheet()">Cancelar</button>`}<button type="submit" class="btn">${saveLabel||'Guardar'}</button></div>`; }
 
 // --- Citas ---
-function openCita(id){
-  const a = S.appointments.find(x => x.id === id) || { title:'', doctor:'', specialty:'', clinic:'', location:'', date: iso(addDays(today(), 7)) + 'T10:00', notes:'', questions:[], done:false };
+function openCita(id, pre){
+  const a = S.appointments.find(x => x.id === id) || Object.assign({ title:'', doctor:'', specialty:'', clinic:'', location:'', date: iso(addDays(today(), 7)) + 'T10:00', notes:'', questions:[], done:false, milestone:'' }, pre ? { title: pre.title || '', date: (pre.date || iso(addDays(today(), 7))) + 'T10:00', milestone: pre.milestone || '' } : {});
   openSheet(`<h2>${id ? 'Cita' : 'Nueva cita'}</h2><p class="sub">${id ? cap(fmtLong(a.date)) + ' · ' + semanaTxt(Math.max(0,gaOf(a.date))) : 'Guarda la cita con las preguntas que quieran hacer.'}</p>
     <form onsubmit="event.preventDefault(); saveCita('${id||''}', this)">
       ${fld('Título', 'title', 'text', a.title, 'required placeholder="Ecografía del primer trimestre"')}
@@ -32,10 +32,11 @@ function openCita(id){
       ${txt('Preguntas para hacer (una por línea)', 'questions', (a.questions||[]).join('\n'), '¿Se confirma la fecha probable de parto?')}
       ${txt('Notas', 'notes', a.notes, 'Qué nos dijeron, qué toca después…')}
       ${sel('Estado', 'done', [['0','Próxima'],['1','Ya fue']], a.done ? '1' : '0')}
+      ${sel('Hito de la evolución que cubre esta cita', 'milestone', [['','Ninguno'], ...HITOS_BASE.filter(h => !h.emocional || h.key==='latido').map(h => [h.key, h.title])], a.milestone || '')}
       ${actions('Guardar', id ? `delCita('${id}')` : null)}
     </form>`);
 }
-function saveCita(id, form){ const f = fd(form); const a = id ? S.appointments.find(x => x.id === id) : { id: uid() }; Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: f.questions.split('\n').map(s => s.trim()).filter(Boolean), notes:f.notes, done: f.done === '1' }); if (!id) S.appointments.push(a); closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
+function saveCita(id, form){ const f = fd(form); const a = id ? S.appointments.find(x => x.id === id) : { id: uid() }; Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: f.questions.split('\n').map(s => s.trim()).filter(Boolean), notes:f.notes, done: f.done === '1', milestone: f.milestone || '' }); if (!id) S.appointments.push(a); if (a.milestone && a.done) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done:true, date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
 function delCita(id){ S.appointments = S.appointments.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Análisis ---
@@ -102,18 +103,24 @@ function saveSintomas(form){ const f = fd(form); const t = iso(today()); let s =
 // --- Hitos (evolución) ---
 function openHito(id){
   const h = timeline().find(x => x.id === id); if (!h) return;
-  openSheet(`<h2>${esc(h.title)}</h2><p class="sub">${cap(fmtLong(h.date))} · ${semanaTxt(Math.max(0,h.ga))}${h.estimated && !h.done ? ' · fecha estimada' : ''}</p>
+  const cita = h.citaId ? S.appointments.find(a => a.id === h.citaId) : null;
+  openSheet(`<h2>${esc(h.title)}</h2><p class="sub">${cap(fmtLong(h.date))} · ${semanaTxt(Math.max(0,h.ga))}${h.estimated && !h.done ? ' · <span class="chip warm" style="padding:2px 8px">fecha estimada</span>' : ''}</p>
     <p class="sub" style="margin-bottom:14px">${esc(h.desc)}</p>
+    ${cita ? `<div class="card accent" style="margin-bottom:14px"><span class="eyebrow">Cita vinculada</span><p class="sub" style="margin-top:4px">${esc(cita.title)} · ${cap(fmtLong(cita.date))}${fmtTime(cita.date) ? ' · ' + fmtTime(cita.date) : ''}${cita.clinic ? ' · ' + esc(cita.clinic) : ''}</p><button class="btn ghost sm" style="margin-top:10px" onclick="closeSheet(); openCita('${cita.id}')">Editar la cita</button></div>` : ''}
     <form onsubmit="event.preventDefault(); saveHito('${id}', ${h.custom}, this)">
       ${h.custom ? fld('Título', 'title', 'text', h.title, 'required') : ''}
-      <div class="field-row">${fld('Fecha', 'date', 'date', iso(h.date), 'required')}${sel('Estado', 'done', [['1','Vivido'],['0','Por venir']], h.done ? '1' : '0')}</div>
+      <div class="field-row">${fld(cita ? 'Fecha (la de la cita)' : 'Fecha', 'date', 'date', iso(h.date), cita ? 'required disabled' : 'required')}${sel('Estado', 'done', [['1','Vivido'],['0','Por venir']], h.done ? '1' : '0')}</div>
       ${txt('Notas', 'note', h.note, 'Cómo fue, qué sentimos, qué nos dijeron')}
       ${photoField('photo', h.photo)}
       ${actions('Guardar', h.custom ? `delHito('${id}')` : null)}
     </form>
-    ${h.done ? `<div style="margin-top:10px"><button class="btn ghost sm block" onclick="closeSheet(); openRecuerdo(null, '${esc(h.title).replace(/'/g,"\\'")}', '${iso(h.date)}')">Guardar también como recuerdo</button></div>` : ''}`);
+    ${!cita && !h.custom && !h.done ? `<div style="margin-top:10px"><button class="btn soft sm block" onclick="closeSheet(); openCita(null, { milestone:'${id}', title:'${esc(h.title).replace(/'/g,"\\'")}', date: iso(pd('${iso(h.date)}')) })">Crear la cita con fecha y hora reales</button></div>` : ''}
+    ${h.done ? `<div style="margin-top:10px"><button class="btn ghost sm block" onclick="closeSheet(); openRecuerdo(null, '${esc(h.title).replace(/'/g,"\\'")}', '${iso(h.date)}')">Guardar también como recuerdo</button></div>` : ''}
+    ${!h.custom ? `<div style="margin-top:10px;text-align:center"><button class="link" style="color:var(--ink3)" onclick="ocultarHito('${id}')">Este hito no aplica a nuestro embarazo · quitar</button></div>` : ''}`);
 }
-function saveHito(id, custom, form){ const f = fd(form); if (custom) { const c = S.customMilestones.find(x => x.id === id); Object.assign(c, { title:f.title, date:f.date, done: f.done === '1', note:f.note, photo:f.photo }); } else { S.milestones[id] = { date:f.date, done: f.done === '1', note:f.note, photo:f.photo }; } closeSheet(); commit(); toast('Guardado'); }
+function ocultarHito(id){ if (!confirm('¿Quitar este hito de la línea de tiempo? Puedes volver a mostrarlo desde tu perfil.')) return; S.milestones[id] = Object.assign(S.milestones[id] || {}, { hidden:true }); closeSheet(); commit(); toast('Hito quitado'); }
+function restaurarHitos(){ Object.values(S.milestones).forEach(m => { if (m) delete m.hidden; }); closeSheet(); commit(); toast('Hitos restaurados'); }
+function saveHito(id, custom, form){ const f = fd(form); if (custom) { const c = S.customMilestones.find(x => x.id === id); Object.assign(c, { title:f.title, date:f.date, done: f.done === '1', note:f.note, photo:f.photo }); } else { const prev = S.milestones[id] || {}; S.milestones[id] = { date: f.date || prev.date || null, done: f.done === '1', note:f.note, photo:f.photo }; } closeSheet(); commit(); toast('Guardado'); }
 function delHito(id){ S.customMilestones = S.customMilestones.filter(x => x.id !== id); closeSheet(); commit(); }
 function openHitoNuevo(){
   openSheet(`<h2>Nuevo hito</h2><p class="sub">Los momentos que solo son suyos.</p>
@@ -212,6 +219,7 @@ function openPerfil(){
       <p class="hint" style="font-size:13px;color:var(--ink3);margin-bottom:12px">Fecha probable de parto actual: <b class="num">${cap(fmtLong(P.edd))}</b>${p.eddOverride ? ' (ajustada por ecografía)' : ''}. <button type="button" class="link" onclick="openFPP()">Ajustar por ecografía</button></p>
       <div class="actions"><button type="button" class="btn ghost" onclick="closeSheet()">Cerrar</button><button type="submit" class="btn">Guardar</button></div>
     </form>
+    ${Object.values(S.milestones).some(m => m && m.hidden) ? `<div style="margin:8px 0"><button class="link" onclick="restaurarHitos()">Volver a mostrar los hitos quitados</button></div>` : ''}
     <div class="card soft" style="margin-top:18px"><span class="eyebrow">Datos</span><div class="actions" style="margin-top:10px"><button class="btn ghost sm" onclick="if(confirm('¿Cargar los datos de ejemplo? Se reemplaza lo guardado.')){S=demoWorkspace(); closeSheet(); commit();}">Cargar ejemplo</button><button class="btn ghost sm" onclick="if(confirm('¿Empezar de cero? Se borra todo lo guardado en este espacio.')){S=null; L.role=null; saveLocal(); try{localStorage.removeItem('juntos.ws')}catch(e){} if(dbRef) dbRef.delete().catch(()=>{}); closeSheet(); render();}">Empezar de cero</button></div></div>`);
 }
 function savePerfil(form){ const f = fd(form); Object.assign(S.pregnancy, { lmp:f.lmp, maternalAge: f.maternalAge ? Number(f.maternalAge) : null, country:f.country, firstPregnancy: f.firstPregnancy === '1', type:f.type, names:{ mother:f.mother, partner:f.partner } }); closeSheet(); commit(); toast('Guardado'); }
@@ -255,7 +263,7 @@ function renderOnboarding(){
   if (OB.step === 5) return `<div class="onb">${steps(5)}<h1>Invita a tu pareja</h1><p class="sub">Los dos entran al mismo espacio: mismas citas, mismos recuerdos, mismos nombres.</p>
     <div class="card"><span class="eyebrow">Código de invitación</span><div class="code">${esc(S.pregnancy.inviteCode)}</div><p class="sub" style="font-size:14px">Comparte esta página y el código. En el móvil de tu pareja, al abrir, elige "Tengo un código de mi pareja".</p>
     <div class="actions"><button class="btn ghost" onclick="copiarInvitacion()">Copiar invitación</button><button class="btn" onclick="compartirInvitacion()">Compartir</button></div></div>
-    <div class="grow"></div><button class="btn block" onclick="L.role = OB.role==='partner' ? 'partner' : OB.role==='mother' ? 'mother' : null; saveLocal(); render()">Ir a Hoy</button></div>`;
+    <div class="grow"></div><button class="btn block" onclick="OB.step=0; L.role = OB.role==='partner' ? 'partner' : OB.role==='mother' ? 'mother' : null; saveLocal(); render()">Ir a Hoy</button></div>`;
   if (OB.step === 6) return `<div class="onb">${back(0)}<h1>Tengo un código</h1><p class="sub">Escribe el código que te pasó tu pareja para entrar al mismo espacio.</p>
     <div class="field"><label>Código</label><input value="${esc(OB.code)}" oninput="OB.code=this.value.toUpperCase()" placeholder="ABC123" style="letter-spacing:.2em;font-size:22px;text-align:center" autocapitalize="characters"></div>
     <p class="hint" style="font-size:13px;color:var(--ink3)">${dbOn ? 'Buscando el espacio compartido…' : 'Si tu pareja ya creó el espacio en esta misma página, aparecerá al entrar.'}</p>

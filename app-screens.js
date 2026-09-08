@@ -2,7 +2,7 @@
 const TABS = [ ['hoy','Hoy',I.home], ['evolucion','Evolución',I.timeline], ['salud','Salud',I.health], ['nosotros','Nosotros',I.us], ['preguntar','Preguntar',I.ask] ];
 function render(){
   const app = $('#app');
-  if (!S || !S.pregnancy?.lmp) { app.innerHTML = renderOnboarding(); $('.tabbar')?.remove(); window.scrollTo(0,0); return; }
+  if (!S || !S.pregnancy?.lmp || OB.step === 5) { app.innerHTML = renderOnboarding(); $('.tabbar')?.remove(); window.scrollTo(0,0); return; }
   if (!L.role) { app.innerHTML = renderRolePick(); $('.tabbar')?.remove(); return; }
   const fn = { hoy: renderHoy, evolucion: renderEvolucion, salud: renderSalud, nosotros: renderNosotros, preguntar: renderPreguntar }[L.tab] || renderHoy;
   app.innerHTML = `<div class="screen ${L.tab==='preguntar'?'chat-screen':''}">${fn()}</div>`;
@@ -58,9 +58,9 @@ function renderHoy(){
     <div class="card"><ul class="list plum">${c.bebe.map(b => `<li>${esc(b)}</li>`).join('')}</ul></div>
   </section>
 
-  ${nx ? `<section class="section"><div class="section-head"><h2>Próximo hito</h2><button class="link" onclick="go('salud')">Ver citas</button></div>
-    <div class="card"><div class="next"><div class="cd"><b class="num">${diffDays(nx.date, today())}</b><small>${diffDays(nx.date, today())===1?'día':'días'}</small></div>
-    <div><span class="chip ${nx.kind==='cita'?'plum':nx.kind==='analisis'?'sage':'warm'}">${nx.kind==='cita'?'Cita':nx.kind==='analisis'?'Análisis':'Hito'}</span><h3 style="margin-top:6px">${esc(nx.title)}</h3><p>${cap(fmtLong(nx.date))}${nx.sub ? ' · ' + esc(nx.sub) : ''}</p></div></div></div>
+  ${nx ? `<section class="section"><div class="section-head"><h2>Próximo hito</h2><button class="link" onclick="go('${nx.kind==='hito'?'evolucion':'salud'}')">${nx.kind==='hito'?'Ver evolución':'Ver citas'}</button></div>
+    <div class="card" onclick="${nx.kind==='hito' ? `openHito('${nx.id}')` : nx.kind==='cita' ? `openCita('${nx.id}')` : `openAnalisis('${nx.id}')`}" role="button" tabindex="0"><div class="next"><div class="cd"><b class="num">${diffDays(nx.date, today())}</b><small>${diffDays(nx.date, today())===1?'día':'días'}</small></div>
+    <div><span class="chip ${nx.kind==='cita'?'plum':nx.kind==='analisis'?'sage':'warm'}">${nx.kind==='cita'?'Cita':nx.kind==='analisis'?'Análisis':nx.estimated?'Hito · fecha estimada':'Hito'}</span><h3 style="margin-top:6px">${esc(nx.title)}</h3><p>${cap(fmtLong(nx.date))}${nx.sub ? ' · ' + esc(nx.sub) : ''}</p>${nx.estimated ? '<p style="font-size:13px;color:var(--ink3);margin-top:4px">Toca para poner la fecha real o crear la cita.</p>' : ''}</div></div></div>
   </section>` : ''}
 
   <section class="section"><div class="section-head"><h2>Para cada uno</h2></div>
@@ -86,7 +86,7 @@ function renderEvolucion(){
     return marker + `<div class="tl-item ${h.done?'done':'up'} ${h.emocional?'emo':''}" onclick="openHito('${h.id}')" role="button" tabindex="0">
       <div class="knot">${h.done ? I.check : ''}</div>
       <div class="when"><span class="num">${cap(fmtShort(h.date))}${h.estimated && !h.done ? ' (aprox.)' : ''}</span><span>·</span><span>${semanaCorta(Math.max(0,h.ga))}</span>${h.custom ? '<span class="chip warm" style="padding:2px 8px">Nuestro</span>' : ''}</div>
-      <h3>${esc(h.title)}</h3><p>${esc(h.desc)}</p>
+      <h3>${esc(h.title)} <span style="display:inline-block;vertical-align:middle;width:16px;height:16px;color:var(--ink3);margin-left:4px">${I.edit.replace('<svg','<svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"')}</span></h3><p>${esc(h.desc)}</p>
       ${h.note ? `<div class="note">${esc(h.note)}</div>` : ''}
       ${h.photo ? `<div class="thumb"><img src="${h.photo}" alt=""></div>` : ''}
     </div>`;
@@ -94,7 +94,7 @@ function renderEvolucion(){
   const done = items.filter(h => h.done).length;
   return `${topbar('Evolución')}
     <h1 class="h-page">Del test positivo al nacimiento</h1>
-    <p class="sub">${done} de ${items.length} momentos vividos. Toca cualquiera para añadir una nota o una foto.</p>
+    <p class="sub">${done} de ${items.length} momentos vividos. Las fechas marcadas como aproximadas son estimaciones: toca el hito para poner la real, crear la cita o quitarlo.</p>
     <div class="section"><div class="tl">${html}</div></div>
     <button class="fab" onclick="openHitoNuevo()" aria-label="Añadir hito">${I.plus}</button>`;
 }

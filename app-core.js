@@ -91,11 +91,12 @@ function hitoFecha(h){ return addDays(preg().lmpEff, h.w*7 + (h.d||0)); }
 // Línea de tiempo: hitos base + personalizados, con estado
 function timeline(){
   const t = today();
-  const base = HITOS_BASE.map(h => {
+  const base = HITOS_BASE.filter(h => !(S.milestones[h.key] || {}).hidden).map(h => {
     const st = S.milestones[h.key] || {};
-    const date = st.date ? pd(st.date) : hitoFecha(h);
+    const cita = S.appointments.find(a => a.milestone === h.key);
+    const date = cita ? pd(cita.date) : st.date ? pd(st.date) : hitoFecha(h);
     const done = st.done != null ? st.done : (h.key !== 'nacimiento' && h.key !== 'fpp' ? date <= t : false);
-    return { ...h, id:h.key, date, done, note: st.note || '', photo: st.photo || '', custom:false, ga: diffDays(date, preg().lmpEff), estimated: !st.date };
+    return { ...h, id:h.key, date, done, note: st.note || '', photo: st.photo || '', custom:false, ga: diffDays(date, preg().lmpEff), estimated: !st.date && !cita, citaId: cita?.id || null };
   });
   const custom = S.customMilestones.map(c => ({ id:c.id, key:c.id, title:c.title, desc:c.desc||'', date: pd(c.date), done: c.done != null ? c.done : pd(c.date) <= t, note:c.note||'', photo:c.photo||'', custom:true, emocional:true, ga: diffDays(pd(c.date), preg().lmpEff), estimated:false }));
   return [...base, ...custom].sort((a,b) => a.date - b.date || (a.emocional?1:0) - (b.emocional?1:0));
@@ -103,9 +104,9 @@ function timeline(){
 function proximoHito(){
   const t = today();
   const cands = [];
-  timeline().filter(h => !h.done && h.date >= t && h.key !== 'nacimiento').forEach(h => cands.push({ title:h.title, date:h.date, kind:'hito' }));
-  S.appointments.filter(a => pd(a.date) >= t && !a.done).forEach(a => cands.push({ title:a.title, date:pd(a.date), kind:'cita', sub:[a.doctor, a.clinic].filter(Boolean).join(' · ') }));
-  S.tests.filter(x => x.status === 'pendiente' && x.date && pd(x.date) >= t).forEach(x => cands.push({ title:x.name, date:pd(x.date), kind:'analisis' }));
+  timeline().filter(h => !h.done && h.date >= t && h.key !== 'nacimiento').forEach(h => cands.push({ id:h.id, title:h.title, date:h.date, kind:'hito', estimated:h.estimated }));
+  S.appointments.filter(a => pd(a.date) >= t && !a.done).forEach(a => cands.push({ id:a.id, title:a.title, date:pd(a.date), kind:'cita', sub:[a.doctor, a.clinic].filter(Boolean).join(' · ') }));
+  S.tests.filter(x => x.status === 'pendiente' && x.date && pd(x.date) >= t).forEach(x => cands.push({ id:x.id, title:x.name, date:pd(x.date), kind:'analisis' }));
   cands.sort((a,b) => a.date - b.date);
   return cands[0] || null;
 }

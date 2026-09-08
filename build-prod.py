@@ -20,7 +20,7 @@ core = rep(core, "async function boot(){", "async function boot_artifact(){")
 sheets = rep(sheets, "\nboot();\n", "\n")
 sheets = rep(sheets, """<button class="link" style="color:var(--ink3)" onclick="S=demoWorkspace(); L.role=null; saveLocal(); commit()">Ver con datos de ejemplo</button>""",
                      """<button class="link" style="color:var(--ink3)" onclick="crearDemo()">Ver con datos de ejemplo</button>""")
-sheets = rep(sheets, """<button class="btn block" onclick="L.role = OB.role==='partner' ? 'partner' : OB.role==='mother' ? 'mother' : null; saveLocal(); render()">Ir a Hoy</button>""",
+sheets = rep(sheets, """<button class="btn block" onclick="OB.step=0; L.role = OB.role==='partner' ? 'partner' : OB.role==='mother' ? 'mother' : null; saveLocal(); render()">Ir a Hoy</button>""",
                      """<button class="btn block" onclick="OB.step=0; render()">Ir a Hoy</button>""")
 sheets = rep(sheets, """<p class="hint" style="font-size:13px;color:var(--ink3)">${dbOn ? 'Buscando el espacio compartido…' : 'Si tu pareja ya creó el espacio en esta misma página, aparecerá al entrar.'}</p>""",
                      """<div class="field"><label>¿Quién eres?</label><div class="pillrow">${[['partner','Soy la pareja'],['mother','Estoy embarazada']].map(([k,l]) => `<button class="${(OB.joinRole||'partner')===k?'on':''}" onclick="OB.joinRole='${k}'; render()">${l}</button>`).join('')}</div></div>""")
