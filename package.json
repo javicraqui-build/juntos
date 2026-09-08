@@ -1,0 +1,7 @@
+{
+  "name": "juntos",
+  "private": true,
+  "version": "0.1.0",
+  "description": "El embarazo, juntos. App de acompa\u00f1amiento del embarazo para parejas.",
+  "type": "module"
+}
