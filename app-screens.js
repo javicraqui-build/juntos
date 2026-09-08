@@ -27,9 +27,11 @@ function emptyState(icon, title, text, cta){ return `<div class="empty"><div cla
 // ====== HOY ======
 function renderHoy(){
   const P = preg(), c = contenido(P.w), nx = proximoHito();
-  const orb = 18 + Math.round(P.pct * 60);
   const sizeTxt = c.cm < 1 ? `${(c.cm*10).toFixed(0)} mm` : `${String(c.cm).replace('.',',')} cm`;
   const peso = c.g ? (c.g >= 1000 ? `${(c.g/1000).toFixed(1).replace('.',',')} kg` : `${c.g} g`) : null;
+  const porPeso = c.by === 'peso';
+  const sizeLead = porPeso ? `Pesa como ${esc(c.cmp)}` : `Como ${esc(c.cmp)}`;
+  const sizeDetail = porPeso ? `Alrededor de ${peso}${c.cm ? `, y mide unos ${sizeTxt} de la cabeza a los pies` : ''}.` : `Mide unos ${sizeTxt}${peso ? ` y pesa alrededor de ${peso}` : ''}.`;
   const me = yo();
   const ella = `<div class="card accent"><span class="eyebrow">Para ${me==='mother' ? 'ti' : esc(quien('mother'))}</span><h3>${me==='mother' ? 'Cómo puedes sentirte esta semana' : 'Lo que ella lee esta semana'}</h3><p class="sub">${esc(c.ella)}</p></div>`;
   const pareja = `<div class="card warm"><span class="eyebrow">Para ${me==='partner' ? 'ti' : esc(quien('partner'))}</span><h3>${me==='partner' ? 'Cómo acompañarla esta semana' : 'Lo que le proponemos esta semana'}</h3><p class="sub">${esc(c.pareja)}</p></div>`;
@@ -50,8 +52,8 @@ function renderHoy(){
   </section>
 
   <section class="section"><div class="card">
-    <div class="size"><div class="orb"><i style="width:${orb}px;height:${orb}px"></i></div>
-    <div class="txt"><span class="eyebrow">Tamaño aproximado</span><h3>Como ${esc(c.cmp)}</h3><p>Mide unos ${sizeTxt}${peso ? ` y pesa alrededor de ${peso}` : ''}.</p></div></div>
+    <div class="size"><div class="orb"><img src="/img/tamano/${c.img}.jpg" alt="${esc(c.cmp)}" loading="lazy" width="96" height="96"></div>
+    <div class="txt"><span class="eyebrow">${porPeso ? 'Peso aproximado' : 'Tamaño aproximado'}</span><h3>${sizeLead}</h3><p>${sizeDetail}</p></div></div>
   </div></section>
 
   <section class="section"><div class="section-head"><h2>Esta semana</h2><button class="link" onclick="go('evolucion')">Ver evolución</button></div>
