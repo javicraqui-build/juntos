@@ -55,6 +55,7 @@ const I = {
   alert:'<svg viewBox="0 0 24 24"><path d="M12 4 2.8 20h18.4z"/><path d="M12 10v4M12 17.2h.01"/></svg>',
   baby:'<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7"/><path d="M12 6c0-1.5.8-2.5 2-3"/><path d="M9.5 12.5h.01M14.5 12.5h.01M9.8 15.5c.7.7 1.4 1 2.2 1s1.5-.3 2.2-1"/></svg>',
   edit:'<svg viewBox="0 0 24 24"><path d="M4 20h4l10.5-10.5a2.1 2.1 0 0 0-3-3L5 17z"/><path d="m13.5 8.5 3 3"/></svg>',
+  doc:'<svg viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>',
   gift:'<svg viewBox="0 0 24 24"><rect x="3.5" y="9" width="17" height="11" rx="2"/><path d="M12 9v11M3.5 13h17M12 9c-2-4-6-3-6-1s3 1 6 1c3 0 6 1 6-1s-4-3-6 1"/></svg>'
 };
 

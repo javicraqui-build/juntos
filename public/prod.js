@@ -259,9 +259,11 @@ async function fotoUrl(path){
   FOTO_URL.set(path, { url: data.signedUrl, exp: Date.now() + 50*60*1000 }); return data.signedUrl;
 }
 function hydrateFotos(root){
-  (root || document).querySelectorAll('img[data-foto^="foto:"]').forEach(async img => {
-    if (img.getAttribute('src')) return;
-    const url = await fotoUrl(img.dataset.foto.slice(5)); if (url && img.isConnected) { img.src = url; img.hidden = false; }
+  (root || document).querySelectorAll('img[data-foto^="foto:"], a[data-foto^="foto:"]').forEach(async el => {
+    const esLink = el.tagName === 'A';
+    if (esLink ? el.getAttribute('href') : el.getAttribute('src')) return;
+    const url = await fotoUrl(el.dataset.foto.slice(5)); if (!url || !el.isConnected) return;
+    if (esLink) el.href = url; else { el.src = url; el.hidden = false; }
   });
 }
 function reducirFoto(file){
@@ -272,10 +274,10 @@ function reducirFoto(file){
     img.src = url;
   });
 }
-async function subirFoto(blob){
+async function subirFoto(blob, ext, mime){
   if (!WS) throw new Error('sin espacio');
-  const path = `${WS.id}/${uid()}${uid()}.jpg`;
-  const { error } = await sb.storage.from('fotos').upload(path, blob, { contentType:'image/jpeg', upsert:false });
+  const path = `${WS.id}/${uid()}${uid()}.${ext || 'jpg'}`;
+  const { error } = await sb.storage.from('fotos').upload(path, blob, { contentType: mime || 'image/jpeg', upsert:false });
   if (error) throw error;
   return 'foto:' + path;
 }
@@ -285,9 +287,16 @@ async function loadPhoto(input, name){
   const h = input.parentElement.querySelector(`input[name="${name}"]`); const p = $('#prev-'+name);
   if (submit) submit.disabled = true; if (hint) hint.textContent = 'Subiendo la foto…';
   try {
-    const blob = await reducirFoto(f); const ref = await subirFoto(blob);
-    h.value = ref; p.src = URL.createObjectURL(blob); p.hidden = false; if (hint) hint.textContent = 'Foto lista. Solo la ven las dos personas del espacio.';
-  } catch (e) { console.warn(e); if (hint) hint.textContent = 'No se pudo subir la foto. Revisa la conexión e inténtalo de nuevo.'; input.value = ''; }
+    if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+      if (f.size > 10*1024*1024) throw new Error('El PDF pesa más de 10 MB.');
+      const ref = await subirFoto(f, 'pdf', 'application/pdf');
+      h.value = ref; if (p) { p.hidden = true; p.insertAdjacentHTML('afterend', docLink(ref, 'PDF listo')); }
+      if (hint) hint.textContent = 'Documento subido. Solo lo ven las dos personas del espacio.';
+    } else {
+      const blob = await reducirFoto(f); const ref = await subirFoto(blob);
+      h.value = ref; p.src = URL.createObjectURL(blob); p.hidden = false; if (hint) hint.textContent = 'Foto lista. Solo la ven las dos personas del espacio.';
+    }
+  } catch (e) { console.warn(e); if (hint) hint.textContent = (e?.message && /MB/.test(e.message)) ? e.message : 'No se pudo subir el archivo. Revisa la conexión e inténtalo de nuevo.'; input.value = ''; }
   if (submit) submit.disabled = false;
 }
 function dataUrlToBlob(d){ const [meta, b64] = d.split(','); const mime = (meta.match(/data:(.*?);/) || [])[1] || 'image/jpeg'; const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: mime }); }

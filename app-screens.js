@@ -168,7 +168,7 @@ function renderAnalisis(){
 function renderEcos(){
   const list = [...S.ultrasounds].sort((a,b) => (b.date||'').localeCompare(a.date||''));
   if (!list.length) return emptyState(I.photo, 'Todavía no hay ecografías', 'Cada ecografía es un momento importante. Guarda la imagen, la fecha y lo que les dijeron.', `<button class="btn soft sm" onclick="openEco()">Añadir ecografía</button>`);
-  return `<div class="section" style="margin-top:4px"><div class="eco-grid">${list.map(e => `<button class="eco" onclick="openEco('${e.id}')">${e.photo ? `<img src="${fotoSrc(e.photo)}" data-foto="${esc(e.photo)}" alt="Ecografía">` : '<div class="img">Sin imagen</div>'}<div class="bd"><b>${semanaTxt(Math.max(0,gaOf(e.date)))}</b><small>${cap(fmtShort(e.date))}${e.fhr ? ` · ${e.fhr} lpm` : ''}</small></div></button>`).join('')}</div></div>`;
+  return `<div class="section" style="margin-top:4px"><div class="eco-grid">${list.map(e => `<button class="eco" onclick="openEco('${e.id}')">${e.photo ? (esDoc(e.photo) ? '<div class="img">Informe PDF</div>' : `<img src="${fotoSrc(e.photo)}" data-foto="${esc(e.photo)}" alt="Ecografía">`) : '<div class="img">Sin imagen</div>'}<div class="bd"><b>${semanaTxt(Math.max(0,gaOf(e.date)))}</b><small>${cap(fmtShort(e.date))}${e.fhr ? ` · ${e.fhr} lpm` : ''}</small></div></button>`).join('')}</div></div>`;
 }
 function renderSintomas(){
   const t = iso(today());

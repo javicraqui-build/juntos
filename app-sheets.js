@@ -4,6 +4,31 @@ function openSheet(html){
   const o = document.createElement('div'); o.className = 'overlay'; o.innerHTML = `<div class="sheet" role="dialog"><div class="grab"></div>${html}</div>`;
   o.addEventListener('click', e => { if (e.target === o) closeSheet(); });
   document.body.appendChild(o); document.body.style.overflow = 'hidden'; if (typeof hydrateFotos === 'function') hydrateFotos(o);
+  swipeToClose(o.firstElementChild);
+}
+// Deslizar hacia abajo para cerrar: desde el asa siempre; desde el contenido solo si la hoja está arriba del todo.
+function swipeToClose(sheet){
+  let y0 = null, dy = 0, t0 = 0, activo = false;
+  sheet.addEventListener('touchstart', e => {
+    const t = e.target; if (['INPUT','TEXTAREA','SELECT'].includes(t.tagName)) return;
+    if (sheet.scrollTop > 0 && !t.classList.contains('grab')) return;
+    y0 = e.touches[0].clientY; t0 = Date.now(); dy = 0; activo = false;
+  }, { passive:true });
+  sheet.addEventListener('touchmove', e => {
+    if (y0 == null) return; dy = e.touches[0].clientY - y0;
+    if (dy < 0) { if (!activo) y0 = null; return; }
+    if (!activo && dy > 8) { activo = true; sheet.classList.add('dragging'); }
+    if (activo) { sheet.style.transform = `translateY(${dy}px)`; if (e.cancelable) e.preventDefault(); }
+  }, { passive:false });
+  const fin = () => {
+    if (y0 == null) return;
+    const rapido = dy / Math.max(1, Date.now() - t0) > 0.5;
+    sheet.classList.remove('dragging');
+    if (activo && (dy > 110 || (rapido && dy > 30))) { sheet.style.transform = `translateY(${sheet.offsetHeight}px)`; setTimeout(closeSheet, 180); }
+    else sheet.style.transform = '';
+    y0 = null; activo = false;
+  };
+  sheet.addEventListener('touchend', fin); sheet.addEventListener('touchcancel', fin);
 }
 function closeSheet(){ document.querySelectorAll('.overlay').forEach(o => o.remove()); document.body.style.overflow = ''; if (typeof PENDING_RENDER !== 'undefined' && PENDING_RENDER) { PENDING_RENDER = false; render(); } }
 function getOrNew(list, id){ let x = id ? list.find(t => t.id === id) : null; if (!x) { x = { id: id || uid() }; list.push(x); } return x; }
@@ -11,7 +36,12 @@ function fd(form){ const o = {}; new FormData(form).forEach((v, k) => { o[k] = t
 function fld(label, name, type, val, extra){ return `<div class="field"><label>${label}</label><input name="${name}" type="${type||'text'}" value="${esc(val||'')}" ${extra||''}></div>`; }
 function txt(label, name, val, ph){ return `<div class="field"><label>${label}</label><textarea name="${name}" placeholder="${esc(ph||'')}">${esc(val||'')}</textarea></div>`; }
 function sel(label, name, opts, val){ return `<div class="field"><label>${label}</label><select name="${name}">${opts.map(([k,l]) => `<option value="${k}" ${k===val?'selected':''}>${l}</option>`).join('')}</select></div>`; }
-function photoField(name, val){ return `<div class="field"><label>Foto</label><div class="photo-in"><img id="prev-${name}" src="${fotoSrc(val||'')}" data-foto="${esc(val||'')}" alt="" ${val?'':'hidden'}><input type="file" accept="image/*" onchange="loadPhoto(this,'${name}')" style="flex:1"><input type="hidden" name="${name}" value="${esc(val||'')}"></div><p class="hint">Se guarda en tamaño reducido para que la sincronización sea rápida.</p></div>`; }
+function esDoc(v){ return !!v && /\.pdf(\?|$)/i.test(v); }
+function docLink(v, label){ return `<a class="doc" href="${fotoSrc(v)}" data-foto="${esc(v)}" target="_blank" rel="noopener">${I.doc} ${label || 'Ver documento'}</a>`; }
+function photoField(name, val, docs){
+  const doc = esDoc(val);
+  return `<div class="field"><label>${docs ? 'Foto o documento' : 'Foto'}</label><div class="photo-in">${doc ? docLink(val, 'PDF guardado') : `<img id="prev-${name}" src="${fotoSrc(val||'')}" data-foto="${esc(val||'')}" alt="" ${val?'':'hidden'}>`}<input type="file" accept="${docs ? 'image/*,application/pdf' : 'image/*'}" onchange="loadPhoto(this,'${name}')" style="flex:1"><input type="hidden" name="${name}" value="${esc(val||'')}"></div><p class="hint">${docs ? 'Una foto o un PDF (por ejemplo, el informe del laboratorio).' : 'Se guarda en tamaño reducido para que la sincronización sea rápida.'}</p></div>`;
+}
 function loadPhoto(input, name){
   const f = input.files?.[0]; if (!f) return;
   const img = new Image(); const url = URL.createObjectURL(f);
@@ -46,6 +76,7 @@ function openAnalisis(id){
   const [l, cls] = STATUS[x.status] || STATUS.pendiente;
   openSheet(`<h2>${id ? esc(x.name) : 'Nuevo análisis'}</h2><p class="sub">${id ? `<span class="chip ${cls}">${l}</span> ${x.date ? cap(fmtShort(x.date)) + ' · ' + semanaTxt(Math.max(0,gaOf(x.date))) : ''}` : 'Guarda el resultado con una explicación sencilla.'}</p>
     ${id && x.interpretation ? `<div class="card accent" style="margin-bottom:16px"><span class="eyebrow">Qué significa</span><p class="sub" style="margin-top:4px">${esc(x.interpretation)}</p></div>` : ''}
+    ${id && x.photo ? `<div style="margin-bottom:14px">${esDoc(x.photo) ? docLink(x.photo, 'Ver el informe (PDF)') : `<img src="${fotoSrc(x.photo)}" data-foto="${esc(x.photo)}" alt="Resultado" style="border-radius:16px;max-height:220px;object-fit:cover">`}</div>` : ''}
     <form onsubmit="event.preventDefault(); saveAnalisis('${id||''}', this)">
       ${fld('Nombre', 'name', 'text', x.name, 'required placeholder="Beta hCG, NIPT, glucosa…"')}
       <div class="field-row">${sel('Tipo', 'kind', Object.entries(KINDS), x.kind)}${fld('Fecha', 'date', 'date', x.date)}</div>
@@ -53,7 +84,7 @@ function openAnalisis(id){
       ${sel('Estado', 'status', Object.entries(STATUS).map(([k,v]) => [k, v[0]]), x.status)}
       ${txt('Interpretación sencilla', 'interpretation', x.interpretation, 'Qué mide y qué significa, en palabras simples')}
       ${txt('Notas del médico', 'doctorNotes', x.doctorNotes)}
-      ${photoField('photo', x.photo)}
+      ${photoField('photo', x.photo, true)}
       ${actions('Guardar', id ? `delAnalisis('${id}')` : null)}
     </form>${disclaimer()}`);
 }
@@ -64,14 +95,14 @@ function delAnalisis(id){ quitarFoto(S.tests.find(x => x.id === id)?.photo); S.t
 function openEco(id){
   const e = S.ultrasounds.find(t => t.id === id) || { date: iso(today()), crl:'', fhr:'', comments:'', doctor:'', clinic:'', photo:'' };
   openSheet(`<h2>${id ? 'Ecografía · ' + semanaTxt(Math.max(0,gaOf(e.date))) : 'Nueva ecografía'}</h2><p class="sub">${id ? cap(fmtLong(e.date)) : 'Un momento importante. Guarda la imagen y lo que les dijeron.'}</p>
-    ${id && e.photo ? `<img src="${fotoSrc(e.photo)}" data-foto="${esc(e.photo)}" alt="Ecografía" style="border-radius:16px;margin-bottom:14px">` : ''}
+    ${id && e.photo ? (esDoc(e.photo) ? `<div style="margin-bottom:14px">${docLink(e.photo, 'Ver el informe (PDF)')}</div>` : `<img src="${fotoSrc(e.photo)}" data-foto="${esc(e.photo)}" alt="Ecografía" style="border-radius:16px;margin-bottom:14px">`) : ''}
     ${id ? `<div class="kv">${e.crl ? `<div><small>CRL</small><b class="num">${esc(e.crl)} mm</b></div>` : ''}${e.fhr ? `<div><small>Frecuencia cardíaca</small><b class="num">${esc(e.fhr)} lpm</b></div>` : ''}</div>` : ''}
     <form onsubmit="event.preventDefault(); saveEco('${id||''}', this)">
       ${fld('Fecha', 'date', 'date', e.date, 'required')}
       <div class="field-row">${fld('CRL (mm)', 'crl', 'number', e.crl, 'step="0.1" inputmode="decimal"')}${fld('Frecuencia cardíaca (lpm)', 'fhr', 'number', e.fhr, 'inputmode="numeric"')}</div>
       <div class="field-row">${fld('Médico/a', 'doctor', 'text', e.doctor)}${fld('Clínica', 'clinic', 'text', e.clinic)}</div>
       ${txt('Comentarios', 'comments', e.comments, 'Qué vieron, qué midieron, qué les dijeron')}
-      ${photoField('photo', e.photo)}
+      ${photoField('photo', e.photo, true)}
       ${actions('Guardar', id ? `delEco('${id}')` : null)}
     </form>
     ${id ? `<div class="card soft" style="margin-top:14px"><span class="eyebrow">Fecha probable de parto</span><p class="sub" style="margin:4px 0 10px">Si en esta ecografía ajustaron la fecha, actualízala y se recalculan todos los hitos.</p><button class="btn ghost sm" onclick="openFPP()">Actualizar la fecha probable de parto</button></div>` : ''}`);

@@ -30,7 +30,7 @@ p{margin:0}
 .num{font-variant-numeric:tabular-nums}
 #app{max-width:480px;margin:0 auto;min-height:100dvh;position:relative}
 .screen{padding:16px 18px calc(92px + env(safe-area-inset-bottom));animation:fade .25s ease}
-@keyframes fade{from{opacity:.4;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes fade{from{opacity:.4}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
 /* Top bar */
@@ -269,7 +269,12 @@ p{margin:0}
 .pillrow button.on{background:var(--accent);color:var(--hero-ink);border-color:transparent}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .pillrow button.on{color:#16131B}}
 :root[data-theme="dark"] .pillrow button.on{color:#16131B}
+[hidden]{display:none!important}
 .photo-in{display:flex;align-items:center;gap:12px}
+.photo-in .doc{display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:14px;text-decoration:none}
+.photo-in .doc svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.sheet.dragging{transition:none}
+.sheet{transition:transform .22s ease}
 .photo-in img{width:64px;height:64px;object-fit:cover;border-radius:12px;border:1px solid var(--line)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(100px + env(safe-area-inset-bottom));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:99px;font-size:14px;font-weight:600;z-index:60;box-shadow:var(--shadow);animation:fade .2s}
 
