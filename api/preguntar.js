@@ -44,7 +44,8 @@ export default async function handler(req, res) {
 
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
-  const { context = '', history = [], question = '', urgent = null } = body || {};
+  const { context = '', history = [], question = '', urgent = null, mode = '' } = body || {};
+  if (mode === 'extraer') return extraerPreguntas(res, context, history, body.cita || null);
   if (!question.trim()) return res.status(400).json({ error: 'empty' });
   if (question.length > 2000 || context.length > 12000) return res.status(413).json({ error: 'too_large', message: 'La pregunta es demasiado larga.' });
 
@@ -95,5 +96,28 @@ export default async function handler(req, res) {
     if (res.headersSent) return res.end();
     return res.status(502).json({ error: 'upstream', message: 'No he podido responder ahora. Inténtalo de nuevo en un momento.' });
   }
+}
+
+// Lee la conversación con el asistente y devuelve las preguntas concretas que conviene llevar a la cita.
+async function extraerPreguntas(res, context, history, cita) {
+  const conv = history.slice(-10).filter(m => (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string').map(m => `${m.role === 'user' ? 'PERSONA' : 'ASISTENTE'}: ${m.content.slice(0, 2500)}`).join('\n\n');
+  const sys = `Eres el asistente de "juntos", una app de embarazo para parejas. Tu única tarea ahora: leer una conversación y extraer las preguntas concretas que la pareja debería hacerle a su equipo médico en la cita indicada.
+Reglas: preguntas claras, en español neutro y tuteando al profesional de forma respetuosa ("¿Se confirma…?", "¿Qué pruebas tocan…?"), una idea por pregunta, máximo 20 palabras cada una, entre 1 y 8 preguntas. Incluye las que el asistente sugirió y las dudas que la persona planteó y que merecen respuesta médica; descarta lo que ya está respondido con certeza, lo que no es para el médico y las repeticiones. Si la cita ya tiene preguntas anotadas, no las repitas.
+Responde SOLO con JSON válido con esta forma exacta: {"preguntas":["…","…"]}`;
+  const user = `${context}\n\nCITA: ${cita ? `${cita.title} el ${cita.date}${cita.doctor ? ' con ' + cita.doctor : ''}. Preguntas ya anotadas: ${(cita.questions || []).join('; ') || 'ninguna'}` : 'la próxima cita'}\n\nCONVERSACIÓN:\n${conv}\n\nExtrae ahora las preguntas. Solo el JSON.`;
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', ...(process.env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': process.env.ANTHROPIC_WORKSPACE_ID } : {}) },
+      body: JSON.stringify({ model: MODEL, max_tokens: 600, temperature: 0.2, system: sys, messages: [{ role: 'user', content: user }, { role: 'assistant', content: '{"preguntas":[' }] })
+    });
+    const j = await r.json();
+    if (!r.ok) { console.error('anthropic extraer', r.status, JSON.stringify(j).slice(0, 300)); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la conversación ahora. Inténtalo en un momento.' }); }
+    const txt = '{"preguntas":[' + (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+    let preguntas = [];
+    try { preguntas = JSON.parse(txt.slice(0, txt.lastIndexOf('}') + 1)).preguntas || []; } catch { preguntas = [...txt.matchAll(/"([^"\n]{8,200}\?)"/g)].map(m => m[1]); }
+    preguntas = preguntas.filter(q => typeof q === 'string' && q.trim()).map(q => q.trim()).slice(0, 8);
+    return res.status(200).json({ preguntas });
+  } catch (e) { console.error(e); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la conversación ahora. Inténtalo en un momento.' }); }
 }
 export const config = { supportsResponseStreaming: true };

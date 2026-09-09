@@ -70,22 +70,40 @@ function openCita(id, pre){
 function saveCita(id, form){ const f = fd(form); const a = getOrNew(S.appointments, id); Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: f.questions.split('\n').map(s => s.trim()).filter(Boolean), notes:f.notes, milestone: f.milestone || '' }); delete a.done; if (a.milestone) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done: citaPasada(a), date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
 function delCita(id){ S.appointments = S.appointments.filter(x => x.id !== id); closeSheet(); commit(); }
 
-// Guardar una pregunta hecha al asistente en una cita
+// Llevar a la cita las preguntas que salieron en la conversación con el asistente
 function openGuardarPregunta(idx){
-  const m = chatMsgs()[idx]; if (!m) return;
+  const msgs = chatMsgs().slice(0, idx + 2);   // hasta la respuesta incluida
   const prox = S.appointments.filter(a => !citaPasada(a)).sort((a, b) => a.date.localeCompare(b.date));
-  openSheet(`<h2>Guardar para la cita</h2><p class="sub">La pregunta queda anotada en la cita para no olvidarla.</p>
-    <form onsubmit="event.preventDefault(); guardarPregunta(this)">
-      ${txt('Pregunta', 'q', m.content.replace(/\s+/g, ' ').trim().slice(0, 200), '')}
-      ${sel('Cita', 'cita', [...prox.map(a => [a.id, `${a.title} · ${cap(fmtShort(a.date))}`]), ['__nueva', 'Nueva cita…']], prox[0]?.id || '__nueva')}
-      <div class="actions"><button type="button" class="btn ghost" onclick="closeSheet()">Cancelar</button><button type="submit" class="btn">Guardar</button></div>
+  const citaSel = prox[0] || null;
+  openSheet(`<h2>Preguntas para la cita</h2><p class="sub">Leo la conversación y saco las preguntas que conviene llevar. Marca las que quieras guardar.</p>
+    <form onsubmit="event.preventDefault(); guardarPreguntas(this)">
+      ${sel('Cita', 'cita', [...prox.map(a => [a.id, `${a.title} · ${cap(fmtShort(a.date))}`]), ['__nueva', 'Nueva cita…']], citaSel?.id || '__nueva')}
+      <div id="preg-lista"><p class="sub" style="padding:8px 0">Leyendo la conversación…</p></div>
+      <div class="field" style="margin-top:6px"><label>Añadir otra</label><input name="extra" placeholder="Escribe una pregunta más, si quieres"></div>
+      <div class="actions"><button type="button" class="btn ghost" onclick="closeSheet()">Cancelar</button><button type="submit" class="btn" id="preg-guardar" disabled>Guardar</button></div>
     </form>`);
+  extraerPreguntas(msgs, citaSel).then(lista => {
+    const box = $('#preg-lista'); if (!box) return;
+    const ya = new Set((citaSel?.questions || []).map(q => q.toLowerCase()));
+    const nuevas = lista.filter(q => !ya.has(q.toLowerCase()));
+    box.innerHTML = nuevas.length ? `<div class="card" style="padding:6px 16px">${nuevas.map((q, i) => `<label class="check-row"><input type="checkbox" name="q${i}" value="${esc(q)}" checked><span>${esc(q)}</span></label>`).join('')}</div>` : `<p class="sub" style="padding:8px 0">No encontré preguntas nuevas en la conversación. Puedes escribir una abajo.</p>`;
+    const b = $('#preg-guardar'); if (b) b.disabled = false;
+  });
 }
-function guardarPregunta(form){
-  const f = fd(form); const q = (f.q || '').trim(); if (!q) return;
-  if (f.cita === '__nueva') { closeSheet(); openCita(null, { questions:[q] }); return; }
+// Sin API (vista de prototipo): las frases con interrogación de la última respuesta
+async function extraerPreguntas(msgs, cita){
+  const ult = [...msgs].reverse().find(m => m.role === 'assistant');
+  return ult ? [...ult.content.matchAll(/¿[^¿?]{6,160}\?/g)].map(m => m[0].trim()).slice(0, 8) : [];
+}
+function guardarPreguntas(form){
+  const f = fd(form);
+  const qs = Object.keys(f).filter(k => /^q\d+$/.test(k)).map(k => f[k]).filter(Boolean);
+  if (f.extra) qs.push(f.extra);
+  if (!qs.length) { toast('No hay preguntas marcadas'); return; }
+  if (f.cita === '__nueva') { closeSheet(); openCita(null, { questions: qs }); return; }
   const a = S.appointments.find(x => x.id === f.cita); if (!a) return;
-  a.questions = [...(a.questions || []), q]; closeSheet(); commit(); toast(`Pregunta guardada en ${a.title}`);
+  const ya = new Set((a.questions || []).map(q => q.toLowerCase()));
+  a.questions = [...(a.questions || []), ...qs.filter(q => !ya.has(q.toLowerCase()))]; closeSheet(); commit(); toast(`${qs.length} ${qs.length === 1 ? 'pregunta guardada' : 'preguntas guardadas'} en ${a.title}`);
 }
 
 // --- Análisis ---
