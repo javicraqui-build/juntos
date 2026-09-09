@@ -14,8 +14,8 @@ create table if not exists public.entries (
   collection   text not null check (collection in ('appointments','tests','ultrasounds','symptoms','memories','names','family','tasks','customMilestones','milestones')),
   id           text not null,
   data         jsonb not null default '{}'::jsonb,
-  -- fecha del ítem (cita, análisis, síntoma, recuerdo, hito…) para consultas y avisos
-  date         date generated always as (nullif(left(data->>'date', 10), '')::date) stored,
+  -- fecha del ítem (cita, análisis, síntoma, recuerdo, hito…) para consultas y avisos; la rellena el trigger
+  date         date,
   updated_by   uuid,
   updated_at   timestamptz not null default now(),
   primary key (workspace_id, collection, id)
@@ -29,7 +29,11 @@ create policy entries_delete on public.entries for delete to authenticated using
 
 create or replace function public.entries_touch() returns trigger
 language plpgsql set search_path = public as $$
-begin new.updated_at = now(); new.updated_by = auth.uid(); return new; end $$;
+begin
+  new.updated_at = now(); new.updated_by = auth.uid();
+  begin new.date := nullif(left(new.data->>'date', 10), '')::date; exception when others then new.date := null; end;
+  return new;
+end $$;
 drop trigger if exists entries_touch on public.entries;
 create trigger entries_touch before insert or update on public.entries for each row execute function public.entries_touch();
 
