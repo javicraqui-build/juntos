@@ -331,3 +331,11 @@ p{margin:0}
 .check-row{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);font-size:15px;line-height:1.4;cursor:pointer}
 .check-row:last-child{border-bottom:0}
 .check-row input{width:20px;height:20px;margin-top:2px;accent-color:var(--accent);flex:0 0 20px}
+
+.preg-row{padding:8px 0;border-bottom:1px solid var(--line)}
+.preg-row:last-child{border-bottom:0}
+.preg-q{display:flex;gap:6px;align-items:center}
+.preg-q input{flex:1;min-width:0}
+.preg-x{flex:0 0 32px;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;color:var(--ink3)}
+.preg-x svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+.preg-row textarea{margin-top:6px;min-height:52px}

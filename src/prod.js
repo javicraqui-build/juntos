@@ -427,7 +427,7 @@ async function extraerPreguntas(msgs, cita){
   const local = () => { const ult = [...msgs].reverse().find(m => m.role === 'assistant'); return ult ? [...ult.content.matchAll(/¿[^¿?]{6,160}\?/g)].map(m => m[0].trim()).slice(0, 8) : []; };
   try {
     const { data: { session } } = await sb.auth.getSession(); if (!session) return local();
-    const r = await fetch('/api/preguntar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + session.access_token }, body: JSON.stringify({ mode:'extraer', context: contextoIA(), history: msgs.slice(-10).map(m => ({ role: m.role, content: m.content })), cita: cita ? { title: cita.title, date: cita.date, doctor: cita.doctor, questions: cita.questions || [] } : null }) });
+    const r = await fetch('/api/preguntar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + session.access_token }, body: JSON.stringify({ mode:'extraer', context: contextoIA(), history: msgs.slice(-10).map(m => ({ role: m.role, content: m.content })), cita: cita ? { title: cita.title, date: cita.date, doctor: cita.doctor, questions: preguntasDe(cita).map(x => x.q) } : null }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !Array.isArray(j.preguntas)) { if (j.message) toast(j.message); return local(); }
     return j.preguntas;

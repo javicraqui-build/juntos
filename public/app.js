@@ -93,6 +93,8 @@ function preg(){
 }
 function contenido(w){ const k = clamp(w, 1, 42); return SEMANAS.find(x => x.w === k); }
 function comoTxt(c){ return c.cm ? `El bebé es como ${c.cmp}.` : 'Todavía no hay embrión que medir.'; }
+// Preguntas de una cita como [{ q, a }] (acepta el formato viejo de cadenas)
+function preguntasDe(a){ return (a?.questions || []).map(x => typeof x === 'string' ? { q: x, a: '' } : { q: x?.q || '', a: x?.a || '' }).filter(x => x.q); }
 function citaPasada(a){ if (!a?.date) return false; const [d, t] = a.date.split('T'); const x = pd(d); if (t) { const [hh, mm] = t.split(':').map(Number); x.setHours(hh || 0, mm || 0, 0, 0); } else x.setHours(23, 59, 0, 0); return x <= new Date(); }
 function hitoFecha(h){ return addDays(preg().lmpEff, h.w*7 + (h.d||0)); }
 
@@ -146,7 +148,7 @@ function paraHoy(){
   if (P.nacido) return out;
   const ahora = new Date();
   const citas = S.appointments.filter(a => !citaPasada(a)).map(a => ({ a, n: diffDays(pd(a.date), t) })).filter(x => x.n <= 1).sort((x, y) => x.a.date.localeCompare(y.a.date));
-  for (const { a, n } of citas) { const nq = (a.questions || []).length; out.push({ ic:I.calendar, txt:`${n === 0 ? 'Hoy' : 'Mañana'}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}: ${a.title}`, sub: nq ? `${nq} ${nq === 1 ? 'pregunta anotada' : 'preguntas anotadas'}` : 'Sin preguntas anotadas todavía', fn:`openCita('${a.id}')` }); }
+  for (const { a, n } of citas) { const nq = preguntasDe(a).length; out.push({ ic:I.calendar, txt:`${n === 0 ? 'Hoy' : 'Mañana'}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}: ${a.title}`, sub: nq ? `${nq} ${nq === 1 ? 'pregunta anotada' : 'preguntas anotadas'}` : 'Sin preguntas anotadas todavía', fn:`openCita('${a.id}')` }); }
   const mias = S.tasks.filter(x => x.status !== 'hecha' && x.due && (x.owner === me || x.owner === 'both') && diffDays(pd(x.due), t) <= 0).sort((a, b) => a.due.localeCompare(b.due));
   for (const x of mias.slice(0, 2)) { const atras = -diffDays(pd(x.due), t); out.push({ ic:I.list, txt:`${atras ? 'Atrasada' : 'Para hoy'}: ${x.title}`, sub: atras ? `Vencía hace ${atras} ${atras === 1 ? 'día' : 'días'}` : (x.owner === 'both' ? 'De los dos' : 'A tu cargo'), fn:`openTarea('${x.id}')` }); }
   if (me === 'partner') {
@@ -174,8 +176,8 @@ function demoWorkspace(){
   W.demo = true;
   W.pregnancy = { lmp: iso(lmp), eddOverride:null, maternalAge:34, firstPregnancy:true, type:'unico', country:'ES', names:{mother:'Lucía', partner:'Martín'}, inviteCode:'JNT4KQ' };
   W.appointments = [
-    { id:uid(), title:'Primera consulta prenatal', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: at(7,3)+'T10:30', notes:'Nos pidió la analítica completa y ácido fólico 400 µg.', questions:[] },
-    { id:uid(), title:'Primera ecografía', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: at(8,1)+'T09:00', notes:'Embrión único, latido presente. CRL 17 mm.', questions:[] },
+    { id:uid(), title:'Primera consulta prenatal', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: at(7,3)+'T10:30', notes:'Nos pidió la analítica completa y ácido fólico 400 µg.', questions:[{ q:'¿Qué suplementos hay que tomar?', a:'Ácido fólico 400 µg al día y yodo. Hierro según la analítica.' }] },
+    { id:uid(), title:'Primera ecografía', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: at(8,1)+'T09:00', notes:'Embrión único, latido presente. CRL 17 mm.', questions:[{ q:'¿Se confirma la fecha probable de parto?', a:'Sí, coincide con la última regla. Se revisa en la eco de la semana 12.' }] },
     { id:uid(), title:'Extracción para el NIPT', doctor:'Laboratorio', specialty:'Análisis clínicos', clinic:'Clínica Santa Marta', location:'Planta baja, laboratorio', date: iso(addDays(t, 5))+'T08:15', notes:'No hace falta ayuno. Llevar el volante.', questions:['¿Cuánto tardan los resultados?','¿Incluye el sexo?'] },
     { id:uid(), title:'Ecografía del primer trimestre', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: iso(addDays(t, 13))+'T12:00', notes:'', questions:['¿Cómo está la translucencia nucal?','¿Se confirma la fecha probable de parto?','¿Podemos grabar el latido?'] }
   ];
@@ -520,14 +522,15 @@ function urgentBox(l){ return `<div class="alert-urgent"><strong>Esto puede nece
 function borrarChat(){ chatMsgs().length = 0; chatPersist(); render(); }
 function preguntarSobreCita(id){
   const a = S.appointments.find(x => x.id === id); if (!a) return;
-  const q = `Tenemos ${a.title} el ${fmtLong(a.date)}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}${a.doctor ? ' con ' + a.doctor : ''}${a.clinic ? ' en ' + a.clinic : ''}. ${(a.questions || []).length ? 'Ya anotamos estas preguntas: ' + a.questions.join('; ') + '. ' : 'Todavía no anotamos preguntas. '}¿Qué más deberíamos preguntar en esa cita, según nuestra semana y lo que tenemos guardado?`;
+  const q = `Tenemos ${a.title} el ${fmtLong(a.date)}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}${a.doctor ? ' con ' + a.doctor : ''}${a.clinic ? ' en ' + a.clinic : ''}. ${preguntasDe(a).length ? 'Ya anotamos estas preguntas: ' + preguntasDe(a).map(x => x.q).join('; ') + '. ' : 'Todavía no anotamos preguntas. '}¿Qué más deberíamos preguntar en esa cita, según nuestra semana y lo que tenemos guardado?`;
   closeSheet(); preguntarCon(q);
 }
 function preguntarCon(q){ L.tab = 'preguntar'; saveLocal(); render(); setTimeout(() => preguntar(q), 50); }
 
 function contextoIA(){
   const P = preg(), p = S.pregnancy, t = today(), me = yo();
-  const citas = S.appointments.filter(a => !citaPasada(a)).slice(0,3).map(a => `${a.title} el ${fmtShort(a.date)} (${[a.doctor,a.clinic].filter(Boolean).join(', ')})${a.questions?.length ? ' · preguntas ya anotadas: ' + a.questions.join('; ') : ''}`);
+  const citas = S.appointments.filter(a => !citaPasada(a)).sort((x, y) => x.date.localeCompare(y.date)).slice(0,3).map(a => `${a.title} el ${fmtShort(a.date)} (${[a.doctor,a.clinic].filter(Boolean).join(', ')})${preguntasDe(a).length ? ' · preguntas ya anotadas: ' + preguntasDe(a).map(x => x.q).join('; ') : ''}`);
+  const pasadas = S.appointments.filter(a => citaPasada(a)).sort((x, y) => y.date.localeCompare(x.date)).slice(0,3).map(a => { const qa = preguntasDe(a).filter(x => x.a).map(x => `${x.q} → ${x.a}`); return `${a.title} (${fmtShort(a.date)}${a.doctor ? ', ' + a.doctor : ''})${a.notes ? ': ' + a.notes : ''}${qa.length ? ' · Preguntas y respuestas: ' + qa.join(' | ') : ''}`; }).filter(x => x.includes(':') || x.includes('Preguntas'));
   const res = S.tests.filter(x => x.status !== 'pendiente').slice(-6).map(x => `${x.name} (${x.date ? semanaCorta(Math.max(0,gaOf(x.date))) : ''}): ${x.result} — ${x.status}`);
   const pendTests = S.tests.filter(x => x.status === 'pendiente').map(x => `${x.name}${x.date ? ' el ' + fmtShort(x.date) : ''}`);
   const ecos = S.ultrasounds.slice(-2).map(e => `Ecografía ${semanaCorta(Math.max(0,gaOf(e.date)))}: ${[e.crl && 'CRL ' + e.crl + ' mm', e.fhr && 'FCF ' + e.fhr + ' lpm', e.comments].filter(Boolean).join(', ')}`);
@@ -541,6 +544,7 @@ function contextoIA(){
 - País: ${pais().nombre}. Terminología local: ${pais().matrona}, ${pais().gine}, ${pais().analisis}. Emergencias: ${pais().emergencias}.
 - Esta semana según el contenido de la app: bebé: ${c.bebe.join(' ')} Ella: ${c.ella} Hitos habituales: ${c.hitos || '—'}.
 - Próximas citas: ${citas.length ? citas.join(' | ') : 'ninguna guardada'}.
+- Lo que dijo el equipo médico en citas anteriores: ${pasadas.length ? pasadas.join(' || ') : 'sin notas'}.
 - Pruebas pendientes: ${pendTests.join(' | ') || 'ninguna'}.
 - Resultados guardados: ${res.join(' | ') || 'ninguno'}.
 - Ecografías: ${ecos.join(' | ') || 'ninguna'}.

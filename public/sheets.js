@@ -60,14 +60,21 @@ function openCita(id, pre){
       <div class="field-row">${fld('Fecha', 'date', 'date', a.date.slice(0,10), 'required')}${fld('Hora', 'time', 'time', a.date.slice(11,16))}</div>
       <div class="field-row">${fld('Médico/a', 'doctor', 'text', a.doctor)}${fld('Especialidad', 'specialty', 'text', a.specialty)}</div>
       <div class="field-row">${fld('Clínica', 'clinic', 'text', a.clinic)}${fld('Ubicación', 'location', 'text', a.location)}</div>
-      ${txt('Preguntas para hacer (una por línea)', 'questions', (a.questions||[]).join('\n'), '¿Se confirma la fecha probable de parto?')}
-      ${id && !citaPasada(a) ? `<div style="margin:-6px 0 14px"><button type="button" class="link" onclick="preguntarSobreCita('${id}')">¿Qué más deberíamos preguntar? · preguntar al asistente</button></div>` : ''}
+      <div class="field"><label>${citaPasada(a) ? 'Preguntas y respuestas' : 'Preguntas para hacer'}</label>
+        <div id="preg-rows">${preguntasDe(a).map((x, i) => filaPregunta(i, x, citaPasada(a))).join('')}</div>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn ghost sm" onclick="addPregunta(${citaPasada(a)})">${I.plus.replace('<svg', '<svg style="width:16px;height:16px;vertical-align:-3px"')} Añadir pregunta</button>${id && !citaPasada(a) ? `<button type="button" class="link" onclick="preguntarSobreCita('${id}')">¿Qué más deberíamos preguntar?</button>` : ''}</div>
+        ${citaPasada(a) ? '<p class="hint">Anota lo que respondieron a cada pregunta: el asistente lo tiene en cuenta después.</p>' : ''}</div>
       ${txt(citaPasada(a) ? 'Qué nos dijeron' : 'Notas', 'notes', a.notes, 'Qué nos dijeron, qué toca después…')}
       ${sel('Hito de la evolución que cubre esta cita', 'milestone', [['','Ninguno'], ...HITOS_BASE.filter(h => ['consulta1','eco1','nipt','eco12','eco20','intrauterino','latido','sexo'].includes(h.key)).map(h => [h.key, h.title])], a.milestone || '')}
       ${actions('Guardar', id ? `delCita('${id}')` : null)}
     </form>`);
 }
-function saveCita(id, form){ const f = fd(form); const a = getOrNew(S.appointments, id); Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: f.questions.split('\n').map(s => s.trim()).filter(Boolean), notes:f.notes, milestone: f.milestone || '' }); delete a.done; if (a.milestone) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done: citaPasada(a), date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
+function filaPregunta(i, x, conRespuesta){
+  return `<div class="preg-row"><div class="preg-q"><input name="q${i}" value="${esc(x.q)}" placeholder="¿Qué queremos preguntar?"><button type="button" class="preg-x" onclick="this.closest('.preg-row').remove()" aria-label="Quitar">${I.x}</button></div>${conRespuesta ? `<textarea name="a${i}" placeholder="Qué respondieron" rows="2">${esc(x.a)}</textarea>` : `<input type="hidden" name="a${i}" value="${esc(x.a)}">`}</div>`;
+}
+function addPregunta(conRespuesta){ const box = $('#preg-rows'); if (!box) return; const i = Date.now() % 1e7; box.insertAdjacentHTML('beforeend', filaPregunta(i, { q:'', a:'' }, conRespuesta)); box.lastElementChild.querySelector('input').focus(); }
+function leerPreguntas(f){ return Object.keys(f).filter(k => /^q\d+$/.test(k)).sort((x, y) => Number(x.slice(1)) - Number(y.slice(1))).map(k => ({ q: f[k], a: f['a' + k.slice(1)] || '' })).filter(x => x.q); }
+function saveCita(id, form){ const f = fd(form); const a = getOrNew(S.appointments, id); Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: leerPreguntas(f), notes:f.notes, milestone: f.milestone || '' }); delete a.done; if (a.milestone) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done: citaPasada(a), date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
 function delCita(id){ S.appointments = S.appointments.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // Llevar a la cita las preguntas que salieron en la conversación con el asistente
@@ -84,7 +91,7 @@ function openGuardarPregunta(idx){
     </form>`);
   extraerPreguntas(msgs, citaSel).then(lista => {
     const box = $('#preg-lista'); if (!box) return;
-    const ya = new Set((citaSel?.questions || []).map(q => q.toLowerCase()));
+    const ya = new Set(preguntasDe(citaSel).map(x => x.q.toLowerCase()));
     const nuevas = lista.filter(q => !ya.has(q.toLowerCase()));
     box.innerHTML = nuevas.length ? `<div class="card" style="padding:6px 16px">${nuevas.map((q, i) => `<label class="check-row"><input type="checkbox" name="q${i}" value="${esc(q)}" checked><span>${esc(q)}</span></label>`).join('')}</div>` : `<p class="sub" style="padding:8px 0">No encontré preguntas nuevas en la conversación. Puedes escribir una abajo.</p>`;
     const b = $('#preg-guardar'); if (b) b.disabled = false;
@@ -100,10 +107,10 @@ function guardarPreguntas(form){
   const qs = Object.keys(f).filter(k => /^q\d+$/.test(k)).map(k => f[k]).filter(Boolean);
   if (f.extra) qs.push(f.extra);
   if (!qs.length) { toast('No hay preguntas marcadas'); return; }
-  if (f.cita === '__nueva') { closeSheet(); openCita(null, { questions: qs }); return; }
+  if (f.cita === '__nueva') { closeSheet(); openCita(null, { questions: qs.map(q => ({ q, a:'' })) }); return; }
   const a = S.appointments.find(x => x.id === f.cita); if (!a) return;
-  const ya = new Set((a.questions || []).map(q => q.toLowerCase()));
-  a.questions = [...(a.questions || []), ...qs.filter(q => !ya.has(q.toLowerCase()))]; closeSheet(); commit(); toast(`${qs.length} ${qs.length === 1 ? 'pregunta guardada' : 'preguntas guardadas'} en ${a.title}`);
+  const ya = new Set(preguntasDe(a).map(x => x.q.toLowerCase()));
+  a.questions = [...preguntasDe(a), ...qs.filter(q => !ya.has(q.toLowerCase())).map(q => ({ q, a:'' }))]; closeSheet(); commit(); toast(`${qs.length} ${qs.length === 1 ? 'pregunta guardada' : 'preguntas guardadas'} en ${a.title}`);
 }
 
 // --- Análisis ---

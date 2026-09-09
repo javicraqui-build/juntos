@@ -273,14 +273,15 @@ function urgentBox(l){ return `<div class="alert-urgent"><strong>Esto puede nece
 function borrarChat(){ chatMsgs().length = 0; chatPersist(); render(); }
 function preguntarSobreCita(id){
   const a = S.appointments.find(x => x.id === id); if (!a) return;
-  const q = `Tenemos ${a.title} el ${fmtLong(a.date)}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}${a.doctor ? ' con ' + a.doctor : ''}${a.clinic ? ' en ' + a.clinic : ''}. ${(a.questions || []).length ? 'Ya anotamos estas preguntas: ' + a.questions.join('; ') + '. ' : 'Todavía no anotamos preguntas. '}¿Qué más deberíamos preguntar en esa cita, según nuestra semana y lo que tenemos guardado?`;
+  const q = `Tenemos ${a.title} el ${fmtLong(a.date)}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}${a.doctor ? ' con ' + a.doctor : ''}${a.clinic ? ' en ' + a.clinic : ''}. ${preguntasDe(a).length ? 'Ya anotamos estas preguntas: ' + preguntasDe(a).map(x => x.q).join('; ') + '. ' : 'Todavía no anotamos preguntas. '}¿Qué más deberíamos preguntar en esa cita, según nuestra semana y lo que tenemos guardado?`;
   closeSheet(); preguntarCon(q);
 }
 function preguntarCon(q){ L.tab = 'preguntar'; saveLocal(); render(); setTimeout(() => preguntar(q), 50); }
 
 function contextoIA(){
   const P = preg(), p = S.pregnancy, t = today(), me = yo();
-  const citas = S.appointments.filter(a => !citaPasada(a)).slice(0,3).map(a => `${a.title} el ${fmtShort(a.date)} (${[a.doctor,a.clinic].filter(Boolean).join(', ')})${a.questions?.length ? ' · preguntas ya anotadas: ' + a.questions.join('; ') : ''}`);
+  const citas = S.appointments.filter(a => !citaPasada(a)).sort((x, y) => x.date.localeCompare(y.date)).slice(0,3).map(a => `${a.title} el ${fmtShort(a.date)} (${[a.doctor,a.clinic].filter(Boolean).join(', ')})${preguntasDe(a).length ? ' · preguntas ya anotadas: ' + preguntasDe(a).map(x => x.q).join('; ') : ''}`);
+  const pasadas = S.appointments.filter(a => citaPasada(a)).sort((x, y) => y.date.localeCompare(x.date)).slice(0,3).map(a => { const qa = preguntasDe(a).filter(x => x.a).map(x => `${x.q} → ${x.a}`); return `${a.title} (${fmtShort(a.date)}${a.doctor ? ', ' + a.doctor : ''})${a.notes ? ': ' + a.notes : ''}${qa.length ? ' · Preguntas y respuestas: ' + qa.join(' | ') : ''}`; }).filter(x => x.includes(':') || x.includes('Preguntas'));
   const res = S.tests.filter(x => x.status !== 'pendiente').slice(-6).map(x => `${x.name} (${x.date ? semanaCorta(Math.max(0,gaOf(x.date))) : ''}): ${x.result} — ${x.status}`);
   const pendTests = S.tests.filter(x => x.status === 'pendiente').map(x => `${x.name}${x.date ? ' el ' + fmtShort(x.date) : ''}`);
   const ecos = S.ultrasounds.slice(-2).map(e => `Ecografía ${semanaCorta(Math.max(0,gaOf(e.date)))}: ${[e.crl && 'CRL ' + e.crl + ' mm', e.fhr && 'FCF ' + e.fhr + ' lpm', e.comments].filter(Boolean).join(', ')}`);
@@ -294,6 +295,7 @@ function contextoIA(){
 - País: ${pais().nombre}. Terminología local: ${pais().matrona}, ${pais().gine}, ${pais().analisis}. Emergencias: ${pais().emergencias}.
 - Esta semana según el contenido de la app: bebé: ${c.bebe.join(' ')} Ella: ${c.ella} Hitos habituales: ${c.hitos || '—'}.
 - Próximas citas: ${citas.length ? citas.join(' | ') : 'ninguna guardada'}.
+- Lo que dijo el equipo médico en citas anteriores: ${pasadas.length ? pasadas.join(' || ') : 'sin notas'}.
 - Pruebas pendientes: ${pendTests.join(' | ') || 'ninguna'}.
 - Resultados guardados: ${res.join(' | ') || 'ninguno'}.
 - Ecografías: ${ecos.join(' | ') || 'ninguna'}.
