@@ -17,10 +17,11 @@ function topbar(title){
   const n = notificaciones();
   return `<div class="topbar"><div class="brand">${title ? esc(title) : 'juntos'}<small>${title ? 'juntos' : 'El embarazo, juntos'}</small></div>
     <div class="topbar-actions">
-      <button class="iconbtn" onclick="openNotifs()" aria-label="Notificaciones">${I.bell}${n.length ? '<span class="dot"></span>' : ''}</button>
+      <button class="iconbtn" onclick="openNotifs()" aria-label="Notificaciones">${I.bell}${notifFirma(n) !== L.seen ? '<span class="dot"></span>' : ''}</button>
       <button class="avatar" onclick="openPerfil()" aria-label="Perfil">${esc(iniciales(yo()))}</button>
     </div></div>`;
 }
+function notifFirma(n){ return (n || notificaciones()).map(x => x.txt).join('|'); }
 function disclaimer(){ return `<p class="disclaimer">Esta información es orientativa y no sustituye el consejo de un profesional de la salud.</p>`; }
 function emptyState(icon, title, text, cta){ return `<div class="empty"><div class="glyph">${icon}</div><h3>${title}</h3><p>${text}</p>${cta ? `<div style="margin-top:14px">${cta}</div>` : ''}</div>`; }
 
@@ -61,7 +62,7 @@ function renderHoy(){
   </section>
 
   ${nx ? `<section class="section"><div class="section-head"><h2>Próximo hito</h2><button class="link" onclick="go('${nx.kind==='hito'?'evolucion':'salud'}')">${nx.kind==='hito'?'Ver evolución':'Ver citas'}</button></div>
-    <div class="card" onclick="${nx.kind==='hito' ? `openHito('${nx.id}')` : nx.kind==='cita' ? `openCita('${nx.id}')` : `openAnalisis('${nx.id}')`}" role="button" tabindex="0"><div class="next"><div class="cd"><b class="num">${diffDays(nx.date, today())}</b><small>${diffDays(nx.date, today())===1?'día':'días'}</small></div>
+    <div class="card" onclick="${nx.kind==='hito' ? `openHito('${nx.id}')` : nx.kind==='cita' ? `openCita('${nx.id}')` : `openAnalisis('${nx.id}')`}" role="button" tabindex="0"><div class="next"><div class="cd">${diffDays(nx.date, today()) === 0 ? `<b class="num" style="font-size:20px">Hoy</b>` : `<b class="num">${diffDays(nx.date, today())}</b><small>${diffDays(nx.date, today())===1?'día':'días'}</small>`}</div>
     <div><span class="chip ${nx.kind==='cita'?'plum':nx.kind==='analisis'?'sage':'warm'}">${nx.kind==='cita'?'Cita':nx.kind==='analisis'?'Análisis':nx.estimated?'Hito · fecha estimada':'Hito'}</span><h3 style="margin-top:6px">${esc(nx.title)}</h3><p>${cap(fmtLong(nx.date))}${nx.sub ? ' · ' + esc(nx.sub) : ''}</p>${nx.estimated ? '<p style="font-size:13px;color:var(--ink3);margin-top:4px">Toca para poner la fecha real o crear la cita.</p>' : ''}</div></div></div>
   </section>` : ''}
 
@@ -87,7 +88,7 @@ function renderEvolucion(){
     if (!nowMarked && isFuture && !h.done) { nowMarked = true; marker = `<div class="tl-item now"><div class="knot"></div><div class="when">Hoy · ${semanaTxt(P.days)}</div><h3>Aquí estamos</h3><p>El bebé es como ${esc(contenido(P.w).cmp)}.</p></div>`; }
     return marker + `<div class="tl-item ${h.done?'done':'up'} ${h.emocional?'emo':''}" onclick="openHito('${h.id}')" role="button" tabindex="0">
       <div class="knot">${h.done ? I.check : ''}</div>
-      <div class="when"><span class="num">${cap(fmtShort(h.date))}${h.estimated && !h.done ? ' (aprox.)' : ''}</span><span>·</span><span>${semanaCorta(Math.max(0,h.ga))}</span>${h.custom ? '<span class="chip warm" style="padding:2px 8px">Nuestro</span>' : ''}</div>
+      <div class="when"><span class="num">${cap(fmtShort(h.date))}${h.estimated && !h.done ? ' (aprox.)' : ''}</span><span>·</span><span>${semanaCorta(Math.max(0,h.ga))}</span>${h.custom ? '<span class="chip warm" style="padding:2px 8px">Nuestro</span>' : ''}${h.porConfirmar ? '<span class="chip amber" style="padding:2px 8px">¿Ya pasó?</span>' : ''}</div>
       <h3>${esc(h.title)} <span style="display:inline-block;vertical-align:middle;width:16px;height:16px;color:var(--ink3);margin-left:4px">${I.edit.replace('<svg','<svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"')}</span></h3><p>${esc(h.desc)}</p>
       ${h.note ? `<div class="note">${esc(h.note)}</div>` : ''}
       ${h.photo ? `<div class="thumb"><img src="${h.photo}" alt=""></div>` : ''}
@@ -96,7 +97,7 @@ function renderEvolucion(){
   const done = items.filter(h => h.done).length;
   return `${topbar('Evolución')}
     <h1 class="h-page">Del test positivo al nacimiento</h1>
-    <p class="sub">${done} de ${items.length} momentos vividos. Las fechas marcadas como aproximadas son estimaciones: toca el hito para poner la real, crear la cita o quitarlo.</p>
+    <p class="sub">${done} de ${items.length} momentos vividos. Las fechas aproximadas son estimaciones: toca el hito para confirmarlo con su fecha real, crear la cita o quitarlo si no aplica.</p>
     <div class="section"><div class="tl">${html}</div></div>
     <button class="fab" onclick="openHitoNuevo()" aria-label="Añadir hito">${I.plus}</button>`;
 }
@@ -226,11 +227,11 @@ function votar(id, v){ const n = S.names.find(x => x.id === id); if (!n) return;
 function renderPreguntar(){
   const P = preg(), me = yo();
   const sug = me === 'partner'
-    ? ['¿Qué debería estar haciendo yo como padre esta semana?', '¿Cómo puedo acompañarla mejor esta semana?', '¿Qué deberíamos preguntarle en la próxima cita?', '¿Cuándo tiene sentido contarle a la familia?', `¿Qué cambia porque ella tiene ${S.pregnancy.maternalAge || 35} años?`]
+    ? ['¿Qué debería estar haciendo yo como padre esta semana?', '¿Cómo puedo acompañarla mejor esta semana?', '¿Qué deberíamos preguntarle en la próxima cita?', '¿Cuándo tiene sentido contarle a la familia?', ...(S.pregnancy.maternalAge >= 35 ? [`¿Qué cambia porque ella tiene ${S.pregnancy.maternalAge} años?`] : ['¿Qué deberíamos preparar antes de la semana 20?'])]
     : [`¿Este síntoma es habitual en la semana ${P.w}?`, '¿Qué deberíamos preguntarle en la próxima cita?', '¿Cuándo conviene hacer el NIPT?', '¿Qué debería esperar de la próxima ecografía?', '¿Qué deberíamos preparar antes de la semana 20?'];
   const msgs = S.chat.slice(-30);
   const body = msgs.length ? msgs.map(m => m.role === 'user' ? `<div class="msg user">${esc(m.content)}</div>` : `${m.urgent ? urgentBox(m.urgent) : ''}<div class="msg ai">${esc(m.content)}<span class="disc">Orientación general para ${semanaTxt(P.days).toLowerCase()}. No sustituye el consejo de tu equipo médico.</span></div>`).join('')
-    : `<div class="card accent"><span class="eyebrow">Asistente</span><h3>Conoce vuestro embarazo</h3><p class="sub">Sé que están en la ${semanaTxt(P.days).toLowerCase()}, la fecha probable de parto, las citas y los resultados que han guardado. Pregunta con contexto, sin tener que explicarlo todo.</p></div>`;
+    : `<div class="card accent"><span class="eyebrow">Asistente</span><h3>Conoce este embarazo</h3><p class="sub">Sé que están en la ${semanaTxt(P.days).toLowerCase()}, la fecha probable de parto, las citas y los resultados que han guardado. Pregunta con contexto, sin tener que explicarlo todo.</p></div>`;
   return `${topbar('Preguntar')}
     <h1 class="h-page">Preguntar</h1><p class="sub" style="margin-bottom:12px">Respuestas calmadas y con contexto. ${sampleFn ? '' : (window.claude?.use ? 'Conectando…' : 'En esta vista, respuestas de orientación general.')}</p>
     <div class="suggest">${sug.map(s => `<button onclick="preguntar('${esc(s).replace(/'/g,"\\'")}')">${esc(s)}</button>`).join('')}</div>
@@ -307,7 +308,7 @@ function respuestaLocal(q, urg){
   if (/nipt/.test(s)) return `El NIPT se puede hacer desde la semana 10 con una extracción de sangre; ustedes están en la ${semanaTxt(P.days).toLowerCase()}, así que ya es momento. Es un cribado, no un diagnóstico: un resultado de bajo riesgo tranquiliza mucho, y uno de alto riesgo se confirma con otra prueba. Los resultados suelen tardar entre una y dos semanas. Pregunten a su ${pais().gine} si en su caso conviene combinarlo con la ecografía de la semana 12.`;
   if (/familia|contar|abuelos/.test(s)) return `No hay un momento correcto: muchas parejas esperan a la ecografía de la semana 12 porque el riesgo de pérdida baja mucho a partir de ahí, y otras prefieren contarlo antes a las personas que las acompañarían pase lo que pase. Decidan juntos a quién, cuándo y cómo, y guárdenlo en Familia para llevar el registro.`;
   if (/síntoma|habitual|normal|náusea|cansancio|dolor/.test(s)) return `En la semana ${P.w}, esto es lo frecuente: ${c.ella} Lo que sí merece una llamada al equipo médico es sangrado abundante, dolor intenso o en un solo lado, fiebre alta o desmayos. Si el síntoma te preocupa o no te deja hacer vida normal, consúltalo: para eso está la próxima cita, y si no puede esperar, llama.`;
-  if (/edad|años/.test(s)) return `Con ${S.pregnancy.maternalAge || 'más de 35'} años, el seguimiento suele ser el mismo, con más atención a los cribados genéticos (el NIPT es especialmente útil) y a controles de tensión y glucosa. La gran mayoría de los embarazos evolucionan bien. Pregunten a su ${pais().gine} si en su caso proponen alguna prueba o control adicional y por qué.`;
+  if (/edad|años/.test(s)) return `${S.pregnancy.maternalAge ? `Con ${S.pregnancy.maternalAge} años` : 'Según la edad'}, el seguimiento suele ser el mismo, con más atención a los cribados genéticos (el NIPT es especialmente útil) y a controles de tensión y glucosa. La gran mayoría de los embarazos evolucionan bien. Pregunten a su ${pais().gine} si en su caso proponen alguna prueba o control adicional y por qué.`;
   if (/ecograf|eco /.test(s)) return `En la próxima ecografía suelen medir al bebé para confirmar la fecha probable de parto, revisar el latido y, según la semana, la anatomía. Pidan que les expliquen cada medida y, si quieren, que les den una imagen o graben el latido. Es un momento emocionalmente intenso: vayan los dos si pueden.`;
   if (/preparar|antes de la semana/.test(s)) return `Antes de la semana 20 suele tener sentido: tener reservada la ecografía morfológica, revisar la cobertura del parto y la licencia parental de cada uno, empezar la lista de nombres y decidir dónde quieren que nazca. Repartan estas tareas en Tareas compartidas para que no recaigan en una sola persona.`;
   return `En la ${semanaTxt(P.days).toLowerCase()}, lo que está pasando es esto: ${c.bebe[0]} ${c.ella} ${me === 'partner' ? c.pareja : ''} Si quieres, concreta un poco más la pregunta y te oriento con lo que tienen guardado.`;

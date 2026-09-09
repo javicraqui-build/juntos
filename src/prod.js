@@ -85,35 +85,101 @@ async function logout(){ closeSheet(); await sb.auth.signOut(); SESSION = null; 
 
 // --- carga del espacio y realtime ---
 async function loadWorkspace(){
-  const { data, error } = await sb.from('workspace_members').select('role, workspaces(*)').eq('user_id', SESSION.user.id).limit(1);
+  const { data, error } = await sb.from('workspace_members').select('role, workspaces(*)').eq('user_id', SESSION.user.id).order('joined_at', { ascending:false }).limit(1);
   if (error) { console.warn(error); }
   const row = data && data[0];
-  if (row && row.workspaces) { adoptWorkspace(row.workspaces, row.role); }
+  if (row && row.workspaces) {
+    const w = Array.isArray(row.workspaces) ? row.workspaces[0] : row.workspaces;
+    if (L.pendingCode && L.pendingCode === w.invite_code) { L.pendingCode = null; saveLocal(); }
+    adoptWorkspace(w, row.role);
+    if (L.pendingCode) setTimeout(() => openUnirse(), 300);
+  }
   else {
     S = null; WS = null; L.role = null; saveLocal();
     if (L.pendingCode) { OB.join = true; OB.code = L.pendingCode; OB.step = 6; }
     render();
   }
 }
+// BASE = última versión del documento confirmada por el servidor. Sirve para fusionar a tres vías
+// (base, mío, remoto) y que dos personas editando a la vez no se pisen.
+let BASE = null, PENDING_RENDER = false, PERSISTING = false, PERSIST_AGAIN = false;
+const COLS = ['appointments','tests','ultrasounds','symptoms','memories','names','family','tasks','customMilestones','chat'];
+const clone = o => JSON.parse(JSON.stringify(o));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function mergeList(base, mine, theirs){
+  base = base || []; mine = mine || []; theirs = theirs || [];
+  const B = new Map(base.map(x => [x.id, x])), M = new Map(mine.map(x => [x.id, x])), T = new Map(theirs.map(x => [x.id, x]));
+  const out = []; const seen = new Set();
+  const pick = id => {
+    const b = B.get(id), m = M.get(id), t = T.get(id);
+    if (m && t) return same(m, b) ? t : m;           // los dos lo tienen: gana quien lo cambió (empate: el mío)
+    if (m && !t) return b && same(m, b) ? null : m;  // ellos lo borraron y yo no lo toqué → borrado; si lo cambié, lo conservo
+    if (!m && t) return b && same(t, b) ? null : t;  // yo lo borré y ellos no lo tocaron → borrado; si lo cambiaron, se conserva
+    return null;
+  };
+  for (const x of [...mine, ...theirs]) { if (seen.has(x.id)) continue; seen.add(x.id); const v = pick(x.id); if (v) out.push(v); }
+  return out;
+}
+function mergeMap(base, mine, theirs){
+  base = base || {}; mine = mine || {}; theirs = theirs || {};
+  const out = {};
+  for (const k of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
+    const b = base[k], m = mine[k], t = theirs[k];
+    if (k in mine && k in theirs) out[k] = same(m, b) ? t : m;
+    else if (k in mine) { if (!(k in base) || !same(m, b)) out[k] = m; }
+    else { if (!(k in base) || !same(t, b)) out[k] = t; }
+  }
+  return out;
+}
+function merge3(base, mine, theirs){
+  if (!base) return theirs;                      // sin base no podemos razonar: manda el servidor
+  const out = Object.assign({}, theirs, mine);
+  out.pregnancy = mergeMap(base.pregnancy, mine.pregnancy, theirs.pregnancy);
+  out.milestones = mergeMap(base.milestones, mine.milestones, theirs.milestones);
+  for (const c of COLS) out[c] = mergeList(base[c], mine[c], theirs[c]);
+  out.chat.sort((a, b) => (a.at || '').localeCompare(b.at || ''));
+  out.updatedAt = [mine.updatedAt, theirs.updatedAt].filter(Boolean).sort().pop() || null;
+  return out;
+}
+function setLocal(){ try { localStorage.setItem('juntos.ws', JSON.stringify(S)); } catch(e){} }
+function renderIfFree(){ if (!document.querySelector('.overlay') && !['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)) { PENDING_RENDER = false; render(); } else PENDING_RENDER = true; }
 function adoptWorkspace(w, role){
   if (Array.isArray(w)) w = w[0];
-  WS = w; S = w.data; L.role = role || null; if (S?.pregnancy) S.pregnancy.inviteCode = w.invite_code; saveLocal();
-  try { localStorage.setItem('juntos.ws', JSON.stringify(S)); } catch(e){}
-  dbOn = true; subscribe(); render();
+  WS = w; S = w.data; BASE = clone(w.data); L.role = role || null; if (S?.pregnancy) S.pregnancy.inviteCode = w.invite_code; saveLocal();
+  setLocal(); dbOn = true; subscribe(); render();
+}
+function applyRemote(row){
+  const d = row?.data; if (!d || !d.pregnancy || !WS) return;
+  if (row.updated_at && row.updated_at === WS.updated_at) return;   // eco de mi propio guardado
+  S = merge3(BASE, S, d); BASE = clone(d); WS.updated_at = row.updated_at || WS.updated_at;
+  S.pregnancy.inviteCode = WS.invite_code; setLocal(); renderIfFree();
+  if (!same(S, d)) persist();                                         // tenía cambios míos que el servidor no tiene
 }
 function subscribe(){
   if (CHAN) { sb.removeChannel(CHAN); CHAN = null; }
   if (!WS) return;
-  CHAN = sb.channel('ws-' + WS.id).on('postgres_changes', { event:'UPDATE', schema:'public', table:'workspaces', filter:`id=eq.${WS.id}` }, p => {
-    if (syncing) return; const d = p.new?.data; if (!d || !d.pregnancy) return;
-    if (!S?.updatedAt || (d.updatedAt && d.updatedAt > S.updatedAt)) { S = d; S.pregnancy.inviteCode = WS.invite_code; try { localStorage.setItem('juntos.ws', JSON.stringify(S)); } catch(e){}
-      if (!document.querySelector('.overlay') && !['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)) render(); }
-  }).subscribe();
+  CHAN = sb.channel('ws-' + WS.id).on('postgres_changes', { event:'UPDATE', schema:'public', table:'workspaces', filter:`id=eq.${WS.id}` }, p => applyRemote(p.new)).subscribe();
 }
 function persist(){
-  S.updatedAt = new Date().toISOString();
-  try { localStorage.setItem('juntos.ws', JSON.stringify(S)); } catch(e){}
-  if (WS) { syncing = true; Promise.resolve(sb.from('workspaces').update({ data: S }).eq('id', WS.id)).then(({ error }) => { if (error) { console.warn(error); toast('No se pudo guardar. Revisa la conexión.'); } }).catch(e => console.warn(e)).finally(() => { syncing = false; }); }
+  S.updatedAt = new Date().toISOString(); setLocal();
+  if (!WS) return;
+  if (PERSISTING) { PERSIST_AGAIN = true; return; }
+  flush();
+}
+async function flush(){
+  PERSISTING = true;
+  try {
+    for (let i = 0; i < 4; i++) {
+      const snapshot = clone(S);
+      const { data, error } = await sb.from('workspaces').update({ data: snapshot }).eq('id', WS.id).eq('updated_at', WS.updated_at).select('updated_at');
+      if (error) { console.warn(error); toast('No se pudo guardar. Revisa la conexión.'); break; }
+      if (data && data.length) { WS.updated_at = data[0].updated_at; BASE = snapshot; break; }
+      // Conflicto: alguien guardó antes. Releo, fusiono y reintento.
+      const r = await sb.from('workspaces').select('data, updated_at').eq('id', WS.id).single();
+      if (r.error || !r.data) { toast('No se pudo guardar. Revisa la conexión.'); break; }
+      S = merge3(BASE, S, r.data.data); BASE = clone(r.data.data); WS.updated_at = r.data.updated_at; S.pregnancy.inviteCode = WS.invite_code; setLocal(); renderIfFree();
+    }
+  } finally { PERSISTING = false; if (PERSIST_AGAIN) { PERSIST_AGAIN = false; flush(); } }
 }
 
 // --- onboarding: crear / unirse / rol ---
@@ -138,7 +204,7 @@ async function unirse(){
   const role = OB.joinRole || 'partner';
   const { data, error } = await sb.rpc('join_workspace', { p_code: code, p_role: role });
   if (error) { alert(error.message.includes('Código') ? 'No encontramos un espacio con ese código. Pide a tu pareja que lo revise.' : 'No se pudo entrar: ' + error.message); return; }
-  L.pendingCode = null; OB.step = 0; adoptWorkspace(data, role); toast('Ya estáis en el mismo espacio');
+  L.pendingCode = null; OB.step = 0; adoptWorkspace(data, role); toast('Ya están en el mismo espacio');
 }
 async function setRole(role){
   if (!WS) return; L.role = role; saveLocal();
@@ -153,14 +219,33 @@ function renderRolePick(){
       <button class="opt" onclick="setRole('partner')"><span class="r"></span><span><b>${esc(S.pregnancy.names?.partner || 'Soy la pareja')}</b><small>Veré primero cómo acompañar y de qué ocuparme</small></span></button>
     </div><div class="grow"></div></div>`;
 }
-async function empezarDeCero(){
-  if (!confirm('¿Empezar de cero? Se borra este espacio para las dos personas.')) return;
+async function salirDelEspacio(silencioso){
+  if (!silencioso && !confirm('¿Salir de este espacio? Dejarás de ver sus datos. Si tu pareja sigue dentro, lo conserva; si quedaba vacío, se borra.')) return false;
   closeSheet();
-  if (WS) { const { error } = await sb.rpc('leave_workspace', { p_ws: WS.id }); if (error) { alert('No se pudo borrar: ' + error.message); return; } }
+  if (WS) { const { error } = await sb.rpc('leave_workspace', { p_ws: WS.id }); if (error) { alert('No se pudo salir: ' + error.message); return false; } }
   if (CHAN) { sb.removeChannel(CHAN); CHAN = null; }
-  S = null; WS = null; L.role = null; OB.step = 0; saveLocal(); try { localStorage.removeItem('juntos.ws'); } catch(e){} render();
+  S = null; WS = null; BASE = null; L.role = null; OB.step = 0; saveLocal(); try { localStorage.removeItem('juntos.ws'); } catch(e){}
+  return true;
 }
-function cargarEjemplo(){ if (!confirm('¿Cargar los datos de ejemplo? Se reemplaza lo guardado en este espacio.')) return; const code = WS?.invite_code; S = demoWorkspace(); if (code) S.pregnancy.inviteCode = code; closeSheet(); commit(); }
+async function empezarDeCero(){ if (await salirDelEspacio()) render(); }
+function openUnirse(){
+  const code = L.pendingCode || '';
+  openSheet(`<h2>Unirme al espacio de mi pareja</h2><p class="sub">${code ? 'Tienes una invitación pendiente.' : 'Si los dos crearon un espacio por separado, quédense con uno: entra con el código de tu pareja.'} Al unirte sales de tu espacio actual${WS ? ' (si queda vacío, se borra)' : ''}.</p>
+    <form onsubmit="event.preventDefault(); unirseDesdePerfil(this.code.value, this.role.value)">
+      <div class="field"><label>Código</label><input name="code" value="${esc(code)}" placeholder="ABC123" required style="letter-spacing:.2em;font-size:22px;text-align:center" autocapitalize="characters"></div>
+      ${sel('¿Quién eres?', 'role', [['partner','Soy la pareja'],['mother','Estoy embarazada']], L.role || 'partner')}
+      <div class="actions"><button type="button" class="btn ghost" onclick="L.pendingCode=null; saveLocal(); closeSheet()">${code ? 'Ignorar invitación' : 'Cancelar'}</button><button type="submit" class="btn">Unirme</button></div>
+    </form>`);
+}
+async function unirseDesdePerfil(code, role){
+  code = (code || '').trim().toUpperCase(); if (!code) return;
+  if (WS && code === WS.invite_code) { L.pendingCode = null; saveLocal(); closeSheet(); toast('Ya estás en ese espacio'); return; }
+  const chk = await sb.rpc('join_workspace', { p_code: code, p_role: role });
+  if (chk.error) { alert(chk.error.message.includes('Código') ? 'No encontramos un espacio con ese código. Pide a tu pareja que lo revise.' : 'No se pudo entrar: ' + chk.error.message); return; }
+  // Ya somos miembros del nuevo espacio; ahora dejamos el anterior.
+  if (WS && WS.id !== (Array.isArray(chk.data) ? chk.data[0] : chk.data).id) { await sb.rpc('leave_workspace', { p_ws: WS.id }); }
+  L.pendingCode = null; OB.step = 0; closeSheet(); adoptWorkspace(chk.data, role); toast('Ya están en el mismo espacio');
+}
 function invitacionTxt(){ return `Estamos esperando un bebé y llevamos el embarazo juntos en esta app. Crea tu cuenta con tu correo y usa el código ${S.pregnancy.inviteCode}: ${location.origin}/?invitar=${S.pregnancy.inviteCode}`; }
 
 // --- asistente: API propia ---
@@ -173,14 +258,16 @@ async function preguntar(q){
   const box = document.createElement('div'); box.className = 'msg ai thinking'; box.textContent = 'Pensando…'; chat.appendChild(box); window.scrollTo(0, document.body.scrollHeight);
   if (urg) { const u = document.createElement('div'); u.innerHTML = urgentBox(urg.l); chat.insertBefore(u.firstChild, box); }
   let text = '';
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { S.chat.pop(); setLocal(); SESSION = null; toast('Tu sesión caducó. Vuelve a entrar.'); render(); return; }
   try {
-    const { data: { session } } = await sb.auth.getSession();
     const r = await fetch('/api/preguntar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + session.access_token }, body: JSON.stringify({ context: contextoIA(), history: S.chat.slice(-9, -1).map(m => ({ role: m.role, content: m.content })), question: q, urgent: urg ? urg.l : null }) });
     const j = await r.json().catch(() => ({}));
+    if (r.status === 401) { S.chat.pop(); setLocal(); await sb.auth.signOut(); SESSION = null; toast('Tu sesión caducó. Vuelve a entrar.'); render(); return; }
     if (r.status === 503 && j.error === 'no_key') { AI_OK = false; text = respuestaLocal(q, urg); }
     else if (!r.ok) { text = j.message || 'No he podido responder ahora. Inténtalo de nuevo en un momento.'; }
     else { AI_OK = true; text = j.text; }
-  } catch (e) { text = respuestaLocal(q, urg); }
+  } catch (e) { text = 'No hay conexión ahora mismo. ' + respuestaLocal(q, urg); }
   S.chat.push({ role:'assistant', content:text, urgent: urg ? urg.l : null, at:new Date().toISOString() });
   commit(); window.scrollTo(0, document.body.scrollHeight);
 }

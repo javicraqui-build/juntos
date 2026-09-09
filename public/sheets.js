@@ -5,7 +5,8 @@ function openSheet(html){
   o.addEventListener('click', e => { if (e.target === o) closeSheet(); });
   document.body.appendChild(o); document.body.style.overflow = 'hidden';
 }
-function closeSheet(){ document.querySelectorAll('.overlay').forEach(o => o.remove()); document.body.style.overflow = ''; }
+function closeSheet(){ document.querySelectorAll('.overlay').forEach(o => o.remove()); document.body.style.overflow = ''; if (typeof PENDING_RENDER !== 'undefined' && PENDING_RENDER) { PENDING_RENDER = false; render(); } }
+function getOrNew(list, id){ let x = id ? list.find(t => t.id === id) : null; if (!x) { x = { id: id || uid() }; list.push(x); } return x; }
 function fd(form){ const o = {}; new FormData(form).forEach((v, k) => { o[k] = typeof v === 'string' ? v.trim() : v; }); return o; }
 function fld(label, name, type, val, extra){ return `<div class="field"><label>${label}</label><input name="${name}" type="${type||'text'}" value="${esc(val||'')}" ${extra||''}></div>`; }
 function txt(label, name, val, ph){ return `<div class="field"><label>${label}</label><textarea name="${name}" placeholder="${esc(ph||'')}">${esc(val||'')}</textarea></div>`; }
@@ -32,11 +33,11 @@ function openCita(id, pre){
       ${txt('Preguntas para hacer (una por línea)', 'questions', (a.questions||[]).join('\n'), '¿Se confirma la fecha probable de parto?')}
       ${txt('Notas', 'notes', a.notes, 'Qué nos dijeron, qué toca después…')}
       ${sel('Estado', 'done', [['0','Próxima'],['1','Ya fue']], a.done ? '1' : '0')}
-      ${sel('Hito de la evolución que cubre esta cita', 'milestone', [['','Ninguno'], ...HITOS_BASE.filter(h => !h.emocional || h.key==='latido').map(h => [h.key, h.title])], a.milestone || '')}
+      ${sel('Hito de la evolución que cubre esta cita', 'milestone', [['','Ninguno'], ...HITOS_BASE.filter(h => ['consulta1','eco1','nipt','eco12','eco20','intrauterino','latido','sexo'].includes(h.key)).map(h => [h.key, h.title])], a.milestone || '')}
       ${actions('Guardar', id ? `delCita('${id}')` : null)}
     </form>`);
 }
-function saveCita(id, form){ const f = fd(form); const a = id ? S.appointments.find(x => x.id === id) : { id: uid() }; Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: f.questions.split('\n').map(s => s.trim()).filter(Boolean), notes:f.notes, done: f.done === '1', milestone: f.milestone || '' }); if (!id) S.appointments.push(a); if (a.milestone && a.done) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done:true, date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
+function saveCita(id, form){ const f = fd(form); const a = getOrNew(S.appointments, id); Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: f.questions.split('\n').map(s => s.trim()).filter(Boolean), notes:f.notes, done: f.done === '1', milestone: f.milestone || '' }); if (a.milestone) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done: a.done, date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
 function delCita(id){ S.appointments = S.appointments.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Análisis ---
@@ -56,7 +57,7 @@ function openAnalisis(id){
       ${actions('Guardar', id ? `delAnalisis('${id}')` : null)}
     </form>${disclaimer()}`);
 }
-function saveAnalisis(id, form){ const f = fd(form); const x = id ? S.tests.find(t => t.id === id) : { id: uid() }; Object.assign(x, f); if (!id) S.tests.push(x); closeSheet(); commit(); toast('Guardado'); }
+function saveAnalisis(id, form){ const f = fd(form); const x = getOrNew(S.tests, id); Object.assign(x, f); closeSheet(); commit(); toast('Guardado'); }
 function delAnalisis(id){ S.tests = S.tests.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Ecografías ---
@@ -75,7 +76,7 @@ function openEco(id){
     </form>
     ${id ? `<div class="card soft" style="margin-top:14px"><span class="eyebrow">Fecha probable de parto</span><p class="sub" style="margin:4px 0 10px">Si en esta ecografía ajustaron la fecha, actualízala y se recalculan todos los hitos.</p><button class="btn ghost sm" onclick="openFPP()">Actualizar la fecha probable de parto</button></div>` : ''}`);
 }
-function saveEco(id, form){ const f = fd(form); const e = id ? S.ultrasounds.find(t => t.id === id) : { id: uid() }; Object.assign(e, f); if (!id) S.ultrasounds.push(e); if (!S.milestones.eco1?.done && S.ultrasounds.length === 1) { S.milestones.eco1 = { done:true, date:e.date }; if (e.fhr) S.milestones.latido = { done:true, date:e.date }; S.milestones.intrauterino = { done:true, date:e.date }; } closeSheet(); commit(); toast('Ecografía guardada'); }
+function saveEco(id, form){ const f = fd(form); const e = getOrNew(S.ultrasounds, id); Object.assign(e, f); if (!S.milestones.eco1?.done && S.ultrasounds.length === 1) { S.milestones.eco1 = { done:true, date:e.date }; if (e.fhr) S.milestones.latido = { done:true, date:e.date }; S.milestones.intrauterino = { done:true, date:e.date }; } closeSheet(); commit(); toast('Ecografía guardada'); }
 function delEco(id){ S.ultrasounds = S.ultrasounds.filter(x => x.id !== id); closeSheet(); commit(); }
 function openFPP(){
   const P = preg();
@@ -106,6 +107,7 @@ function openHito(id){
   const cita = h.citaId ? S.appointments.find(a => a.id === h.citaId) : null;
   openSheet(`<h2>${esc(h.title)}</h2><p class="sub">${cap(fmtLong(h.date))} · ${semanaTxt(Math.max(0,h.ga))}${h.estimated && !h.done ? ' · <span class="chip warm" style="padding:2px 8px">fecha estimada</span>' : ''}</p>
     <p class="sub" style="margin-bottom:14px">${esc(h.desc)}</p>
+    ${h.porConfirmar ? `<div class="card soft" style="margin-bottom:14px"><span class="eyebrow">Fecha estimada ya pasada</span><p class="sub" style="margin:4px 0 10px">Nadie lo ha confirmado todavía. Si ya pasó, marca la fecha real y guárdalo como vivido; si no aplica a su embarazo, quítalo abajo.</p><button class="btn soft sm" onclick="confirmarHito('${id}')">Sí, ya pasó ese día</button></div>` : ''}
     ${cita ? `<div class="card accent" style="margin-bottom:14px"><span class="eyebrow">Cita vinculada</span><p class="sub" style="margin-top:4px">${esc(cita.title)} · ${cap(fmtLong(cita.date))}${fmtTime(cita.date) ? ' · ' + fmtTime(cita.date) : ''}${cita.clinic ? ' · ' + esc(cita.clinic) : ''}</p><button class="btn ghost sm" style="margin-top:10px" onclick="closeSheet(); openCita('${cita.id}')">Editar la cita</button></div>` : ''}
     <form onsubmit="event.preventDefault(); saveHito('${id}', ${h.custom}, this)">
       ${h.custom ? fld('Título', 'title', 'text', h.title, 'required') : ''}
@@ -118,9 +120,10 @@ function openHito(id){
     ${h.done ? `<div style="margin-top:10px"><button class="btn ghost sm block" onclick="closeSheet(); openRecuerdo(null, '${esc(h.title).replace(/'/g,"\\'")}', '${iso(h.date)}')">Guardar también como recuerdo</button></div>` : ''}
     ${!h.custom ? `<div style="margin-top:10px;text-align:center"><button class="link" style="color:var(--ink3)" onclick="ocultarHito('${id}')">Este hito no aplica a nuestro embarazo · quitar</button></div>` : ''}`);
 }
+function confirmarHito(id){ const h = timeline().find(x => x.id === id); if (!h) return; S.milestones[id] = Object.assign(S.milestones[id] || {}, { done:true, date: iso(h.date) }); closeSheet(); commit(); toast('Hito confirmado'); }
 function ocultarHito(id){ if (!confirm('¿Quitar este hito de la línea de tiempo? Puedes volver a mostrarlo desde tu perfil.')) return; S.milestones[id] = Object.assign(S.milestones[id] || {}, { hidden:true }); closeSheet(); commit(); toast('Hito quitado'); }
 function restaurarHitos(){ Object.values(S.milestones).forEach(m => { if (m) delete m.hidden; }); closeSheet(); commit(); toast('Hitos restaurados'); }
-function saveHito(id, custom, form){ const f = fd(form); if (custom) { const c = S.customMilestones.find(x => x.id === id); Object.assign(c, { title:f.title, date:f.date, done: f.done === '1', note:f.note, photo:f.photo }); } else { const prev = S.milestones[id] || {}; S.milestones[id] = { date: f.date || prev.date || null, done: f.done === '1', note:f.note, photo:f.photo }; } closeSheet(); commit(); toast('Guardado'); }
+function saveHito(id, custom, form){ const f = fd(form); if (custom) { const c = getOrNew(S.customMilestones, id); Object.assign(c, { title:f.title, date:f.date, done: f.done === '1', note:f.note, photo:f.photo }); } else { const prev = S.milestones[id] || {}; S.milestones[id] = { date: f.date || prev.date || null, done: f.done === '1', note:f.note, photo:f.photo }; } closeSheet(); commit(); toast('Guardado'); }
 function delHito(id){ S.customMilestones = S.customMilestones.filter(x => x.id !== id); closeSheet(); commit(); }
 function openHitoNuevo(){
   openSheet(`<h2>Nuevo hito</h2><p class="sub">Los momentos que solo son suyos.</p>
@@ -149,7 +152,7 @@ function openRecuerdo(id, title, date){
       ${actions('Guardar', id ? `delRecuerdo('${id}')` : null)}
     </form>`);
 }
-function saveRecuerdo(id, form){ const f = fd(form); const m = id ? S.memories.find(x => x.id === id) : { id: uid() }; Object.assign(m, { title:f.title, date:f.date, author:f.author, text:f.text, photo:f.photo, audio: f.audio === '1' }); if (!id) S.memories.push(m); closeSheet(); commit(); toast('Recuerdo guardado'); }
+function saveRecuerdo(id, form){ const f = fd(form); const m = getOrNew(S.memories, id); Object.assign(m, { title:f.title, date:f.date, author:f.author, text:f.text, photo:f.photo, audio: f.audio === '1' }); closeSheet(); commit(); toast('Recuerdo guardado'); }
 function delRecuerdo(id){ S.memories = S.memories.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Nombres ---
@@ -164,7 +167,7 @@ function openNombre(id){
       ${actions('Guardar', id ? `delNombre('${id}')` : null)}
     </form>`);
 }
-function saveNombre(id, form){ const f = fd(form); const n = id ? S.names.find(x => x.id === id) : { id: uid(), addedBy: yo(), votes:{ [yo()]: 'like' } }; Object.assign(n, { name:f.name, origin:f.origin, meaning:f.meaning, notes:f.notes }); if (!id) S.names.push(n); closeSheet(); commit(); toast('Nombre guardado'); }
+function saveNombre(id, form){ const f = fd(form); const n = getOrNew(S.names, id); if (!n.votes) { n.addedBy = yo(); n.votes = { [yo()]: 'like' }; } Object.assign(n, { name:f.name, origin:f.origin, meaning:f.meaning, notes:f.notes }); closeSheet(); commit(); toast('Nombre guardado'); }
 function delNombre(id){ S.names = S.names.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Familia ---
@@ -180,7 +183,7 @@ function openFamiliar(id){
       ${actions('Guardar', id ? `delFamiliar('${id}')` : null)}
     </form>`);
 }
-function saveFamiliar(id, form){ const f = fd(form); const x = id ? S.family.find(t => t.id === id) : { id: uid() }; Object.assign(x, { name:f.name, group:f.group, knows: f.knows === '1', date:f.date, how:f.how, reaction:f.reaction }); if (!id) S.family.push(x); closeSheet(); commit(); toast('Guardado'); }
+function saveFamiliar(id, form){ const f = fd(form); const x = getOrNew(S.family, id); Object.assign(x, { name:f.name, group:f.group, knows: f.knows === '1', date:f.date, how:f.how, reaction:f.reaction }); closeSheet(); commit(); toast('Guardado'); }
 function delFamiliar(id){ S.family = S.family.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Tareas ---
@@ -196,12 +199,12 @@ function openTarea(id){
       ${actions('Guardar', id ? `delTarea('${id}')` : null)}
     </form>`);
 }
-function saveTarea(id, form){ const f = fd(form); const x = id ? S.tasks.find(t => t.id === id) : { id: uid() }; Object.assign(x, f); if (!id) S.tasks.push(x); closeSheet(); commit(); toast('Tarea guardada'); }
+function saveTarea(id, form){ const f = fd(form); const x = getOrNew(S.tasks, id); Object.assign(x, f); closeSheet(); commit(); toast('Tarea guardada'); }
 function delTarea(id){ S.tasks = S.tasks.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Notificaciones ---
 function openNotifs(){
-  const n = notificaciones();
+  const n = notificaciones(); L.seen = notifFirma(n); saveLocal(); const b = document.querySelector('.topbar .dot'); if (b) b.remove();
   openSheet(`<h2>Notificaciones</h2><p class="sub">Solo lo que importa esta semana.</p><div class="card" style="padding:4px 18px">${n.map(x => `<div class="notif"><div class="ic">${x.ic}</div><div><p>${esc(x.txt)}</p><small>${esc(x.sub||'')}</small></div></div>`).join('')}</div>
     <p class="disclaimer">Las notificaciones se calculan con la semana de embarazo, las citas y los hitos guardados. Pocas y útiles, sin ruido.</p>`);
 }
@@ -210,7 +213,7 @@ function openNotifs(){
 function openPerfil(){
   const p = S.pregnancy, P = preg();
   openSheet(`<h2>${esc(quien('mother'))} y ${esc(quien('partner'))}</h2><p class="sub">Estás usando la app como <b>${esc(quien(yo()))}</b>. <button class="link" onclick="L.role=null; saveLocal(); closeSheet(); render()">Cambiar</button></p>
-    <div class="card" style="margin-bottom:14px"><span class="eyebrow">Compartir con tu pareja</span><p class="sub" style="margin-top:4px">Los dos usan el mismo espacio. Tu pareja entra con su correo y este código:</p><div class="code">${esc(p.inviteCode)}</div><div class="sync on" id="sync"><i></i><span>Sincronizado en la nube</span></div><div style="margin-top:10px"><button class="btn ghost sm" onclick="copiarInvitacion()">Copiar invitación</button></div></div>
+    <div class="card" style="margin-bottom:14px"><span class="eyebrow">Compartir con tu pareja</span><p class="sub" style="margin-top:4px">Los dos usan el mismo espacio. Tu pareja entra con su correo y este código:</p><div class="code">${esc(p.inviteCode)}</div><div class="sync on" id="sync"><i></i><span>Sincronizado en la nube</span></div><div class="actions" style="margin-top:10px"><button class="btn ghost sm" onclick="copiarInvitacion()">Copiar invitación</button><button class="link" style="font-size:13px" onclick="openUnirse()">Tengo un código de mi pareja</button></div></div>
     <form onsubmit="event.preventDefault(); savePerfil(this)">
       <div class="field-row">${fld('Nombre de ella', 'mother', 'text', p.names?.mother)}${fld('Nombre de la pareja', 'partner', 'text', p.names?.partner)}</div>
       ${fld('Primer día de la última menstruación', 'lmp', 'date', p.lmp, 'required')}
@@ -220,7 +223,7 @@ function openPerfil(){
       <div class="actions"><button type="button" class="btn ghost" onclick="closeSheet()">Cerrar</button><button type="submit" class="btn">Guardar</button></div>
     </form>
     ${Object.values(S.milestones).some(m => m && m.hidden) ? `<div style="margin:8px 0"><button class="link" onclick="restaurarHitos()">Volver a mostrar los hitos quitados</button></div>` : ''}
-    <div class="card soft" style="margin-top:18px"><span class="eyebrow">Cuenta y datos</span><p class="sub" style="margin-top:4px;font-size:13px">Sesión: ${esc(SESSION?.user?.email || '')}</p><div class="actions" style="margin-top:10px"><button class="btn ghost sm" onclick="cargarEjemplo()">Cargar ejemplo</button><button class="btn ghost sm" onclick="empezarDeCero()">Empezar de cero</button></div><div style="margin-top:10px"><button class="btn ghost sm block" onclick="logout()">Cerrar sesión</button></div></div>`);
+    <div class="card soft" style="margin-top:18px"><span class="eyebrow">Cuenta</span><p class="sub" style="margin-top:4px;font-size:13px">Sesión: ${esc(SESSION?.user?.email || '')}</p><div class="actions" style="margin-top:10px"><button class="btn ghost sm" onclick="logout()">Cerrar sesión</button><button class="btn ghost sm" onclick="empezarDeCero()">Salir del espacio</button></div><p class="hint" style="font-size:12px;color:var(--ink3);margin-top:8px">Salir del espacio no borra nada mientras tu pareja siga dentro.</p></div>`);
 }
 function savePerfil(form){ const f = fd(form); Object.assign(S.pregnancy, { lmp:f.lmp, maternalAge: f.maternalAge ? Number(f.maternalAge) : null, country:f.country, firstPregnancy: f.firstPregnancy === '1', type:f.type, names:{ mother:f.mother, partner:f.partner } }); closeSheet(); commit(); toast('Guardado'); }
 
@@ -261,7 +264,7 @@ function renderOnboarding(){
     <div class="opts">${Object.entries(PAISES).map(([k,v]) => `<button class="opt ${OB.country===k?'on':''}" onclick="OB.country='${k}'; render()"><span class="r"></span><span><b>${v.nombre}</b><small>${k==='OT' ? 'Español neutro' : `${cap(v.matrona)} · emergencias ${v.emergencias}`}</small></span></button>`).join('')}</div>
     <div class="grow"></div><button class="btn block" onclick="crearEspacio()">Crear nuestro espacio</button></div>`;
   if (OB.step === 5) return `<div class="onb">${steps(5)}<h1>Invita a tu pareja</h1><p class="sub">Los dos entran al mismo espacio: mismas citas, mismos recuerdos, mismos nombres.</p>
-    <div class="card"><span class="eyebrow">Código de invitación</span><div class="code">${esc(S.pregnancy.inviteCode)}</div><p class="sub" style="font-size:14px">Envía la invitación a tu pareja: entra con su correo y usa el código. Los dos veréis y editaréis lo mismo.</p>
+    <div class="card"><span class="eyebrow">Código de invitación</span><div class="code">${esc(S.pregnancy.inviteCode)}</div><p class="sub" style="font-size:14px">Envía la invitación a tu pareja: entra con su correo y usa el código. Los dos verán y editarán lo mismo.</p>
     <div class="actions"><button class="btn ghost" onclick="copiarInvitacion()">Copiar invitación</button><button class="btn" onclick="compartirInvitacion()">Compartir</button></div></div>
     <div class="grow"></div><button class="btn block" onclick="OB.step=0; render()">Ir a Hoy</button></div>`;
   if (OB.step === 6) return `<div class="onb">${back(0)}<h1>Tengo un código</h1><p class="sub">Escribe el código que te pasó tu pareja para entrar al mismo espacio.</p>
