@@ -1,5 +1,5 @@
 // juntos · service worker. Red primero (nunca sirve una versión vieja si hay conexión); caché como respaldo sin red.
-const VERSION = '42ca13c6f2';
+const VERSION = '96c7b0a07f';
 const CACHE = 'juntos-' + VERSION;
 const CORE = ['/', '/index.html', '/app.css', '/content.js', '/app.js', '/sheets.js', '/prod.js', '/vendor/supabase-2.116.0.js', '/manifest.json'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(CORE)).then(() => self.skipWaiting())); });

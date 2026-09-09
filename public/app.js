@@ -93,6 +93,7 @@ function preg(){
 }
 function contenido(w){ const k = clamp(w, 1, 42); return SEMANAS.find(x => x.w === k); }
 function comoTxt(c){ return c.cm ? `El bebé es como ${c.cmp}.` : 'Todavía no hay embrión que medir.'; }
+function citaPasada(a){ if (!a?.date) return false; const [d, t] = a.date.split('T'); const x = pd(d); if (t) { const [hh, mm] = t.split(':').map(Number); x.setHours(hh || 0, mm || 0, 0, 0); } else x.setHours(23, 59, 0, 0); return x <= new Date(); }
 function hitoFecha(h){ return addDays(preg().lmpEff, h.w*7 + (h.d||0)); }
 
 // Línea de tiempo: hitos base + personalizados, con estado
@@ -105,7 +106,7 @@ function timeline(){
     // Un hito base solo está vivido si alguien lo confirmó o si su cita vinculada ya fue. Nunca por la fecha estimada.
     // Excepción: los hitos de calendario (tercer trimestre, a término, FPP) se cumplen solos con la fecha.
     const calendario = ['t3','termino','fpp'].includes(h.key);
-    const done = st.done != null ? st.done : cita ? !!cita.done : calendario ? date <= t : false;
+    const done = st.done != null ? st.done : cita ? citaPasada(cita) : calendario ? date <= t : false;
     const estimated = !st.date && !cita;
     return { ...h, id:h.key, date, done, note: st.note || '', photo: st.photo || '', custom:false, ga: diffDays(date, preg().lmpEff), estimated, citaId: cita?.id || null, porConfirmar: !done && estimated && date < t && !calendario && h.key !== 'nacimiento' };
   });
@@ -116,7 +117,7 @@ function proximoHito(){
   const t = today();
   const cands = [];
   timeline().filter(h => !h.done && h.date >= t && h.key !== 'nacimiento' && !h.citaId).forEach(h => cands.push({ id:h.id, title:h.title, date:h.date, kind:'hito', estimated:h.estimated }));
-  S.appointments.filter(a => pd(a.date) >= t && !a.done).forEach(a => cands.push({ id:a.id, title:a.title, date:pd(a.date), kind:'cita', sub:[a.doctor, a.clinic].filter(Boolean).join(' · ') }));
+  S.appointments.filter(a => !citaPasada(a)).forEach(a => cands.push({ id:a.id, title:a.title, date:pd(a.date), kind:'cita', sub:[a.doctor, a.clinic].filter(Boolean).join(' · ') }));
   S.tests.filter(x => x.status === 'pendiente' && x.date && pd(x.date) >= t).forEach(x => cands.push({ id:x.id, title:x.name, date:pd(x.date), kind:'analisis' }));
   cands.sort((a,b) => a.date - b.date);
   return cands[0] || null;
@@ -151,10 +152,10 @@ function demoWorkspace(){
   W.demo = true;
   W.pregnancy = { lmp: iso(lmp), eddOverride:null, maternalAge:34, firstPregnancy:true, type:'unico', country:'ES', names:{mother:'Lucía', partner:'Martín'}, inviteCode:'JNT4KQ' };
   W.appointments = [
-    { id:uid(), title:'Primera consulta prenatal', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: at(7,3)+'T10:30', notes:'Nos pidió la analítica completa y ácido fólico 400 µg.', questions:[], done:true },
-    { id:uid(), title:'Primera ecografía', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: at(8,1)+'T09:00', notes:'Embrión único, latido presente. CRL 17 mm.', questions:[], done:true },
-    { id:uid(), title:'Extracción para el NIPT', doctor:'Laboratorio', specialty:'Análisis clínicos', clinic:'Clínica Santa Marta', location:'Planta baja, laboratorio', date: iso(addDays(t, 5))+'T08:15', notes:'No hace falta ayuno. Llevar el volante.', questions:['¿Cuánto tardan los resultados?','¿Incluye el sexo?'], done:false },
-    { id:uid(), title:'Ecografía del primer trimestre', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: iso(addDays(t, 13))+'T12:00', notes:'', questions:['¿Cómo está la translucencia nucal?','¿Se confirma la fecha probable de parto?','¿Podemos grabar el latido?'], done:false }
+    { id:uid(), title:'Primera consulta prenatal', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: at(7,3)+'T10:30', notes:'Nos pidió la analítica completa y ácido fólico 400 µg.', questions:[] },
+    { id:uid(), title:'Primera ecografía', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: at(8,1)+'T09:00', notes:'Embrión único, latido presente. CRL 17 mm.', questions:[] },
+    { id:uid(), title:'Extracción para el NIPT', doctor:'Laboratorio', specialty:'Análisis clínicos', clinic:'Clínica Santa Marta', location:'Planta baja, laboratorio', date: iso(addDays(t, 5))+'T08:15', notes:'No hace falta ayuno. Llevar el volante.', questions:['¿Cuánto tardan los resultados?','¿Incluye el sexo?'] },
+    { id:uid(), title:'Ecografía del primer trimestre', doctor:'Dra. Elena Ruiz', specialty:'Ginecología y obstetricia', clinic:'Clínica Santa Marta', location:'C/ Arturo Soria 120, Madrid', date: iso(addDays(t, 13))+'T12:00', notes:'', questions:['¿Cómo está la translucencia nucal?','¿Se confirma la fecha probable de parto?','¿Podemos grabar el latido?'] }
   ];
   W.tests = [
     { id:uid(), name:'Beta hCG', kind:'sangre', date: at(4,5), result:'1.250 mUI/ml', status:'normal', interpretation:'Un valor compatible con un embarazo de pocas semanas. Lo que importa es que suba en los próximos días, no el número aislado.', doctorNotes:'Repetir en 48 h para ver evolución.' },
@@ -368,12 +369,12 @@ function rowCita(a){
   const d = pd(a.date);
   return `<div class="row clickable" onclick="openCita('${a.id}')"><div class="ic date"><b class="num">${d.getDate()}</b><small>${fmt(d,{month:'short'}).replace('.','')}</small></div>
     <div class="body"><h4>${esc(a.title)}</h4><p>${[fmtTime(a.date), a.doctor, a.clinic].filter(Boolean).map(esc).join(' · ')}</p></div>
-    <div class="tail">${a.done ? '<span class="chip sage">Hecha</span>' : `<span class="chip plum num">${relDias(diffDays(d, today()))}</span>`}</div></div>`;
+    <div class="tail">${citaPasada(a) ? '<span class="chip sage">Ya fue</span>' : `<span class="chip plum num">${relDias(diffDays(d, today()))}</span>`}</div></div>`;
 }
 function renderCitas(){
   const t = today();
-  const prox = S.appointments.filter(a => !a.done && pd(a.date) >= t).sort((a,b) => a.date.localeCompare(b.date));
-  const ant = S.appointments.filter(a => a.done || pd(a.date) < t).sort((a,b) => b.date.localeCompare(a.date));
+  const prox = S.appointments.filter(a => !citaPasada(a)).sort((a,b) => a.date.localeCompare(b.date));
+  const ant = S.appointments.filter(a => citaPasada(a)).sort((a,b) => b.date.localeCompare(a.date));
   return `<div class="section" style="margin-top:4px"><div class="section-head"><h2>Próximas citas</h2></div>
     ${prox.length ? `<div class="card" style="padding:4px 18px">${prox.map(rowCita).join('')}</div>` : emptyState(I.calendar, 'No hay próximas citas guardadas', 'Cuando reserven una consulta o una ecografía, guárdenla aquí con las preguntas que quieran hacer.', `<button class="btn soft sm" onclick="openCita()">Añadir cita</button>`)}
     </div>
@@ -498,7 +499,7 @@ function preguntarCon(q){ L.tab = 'preguntar'; saveLocal(); render(); setTimeout
 
 function contextoIA(){
   const P = preg(), p = S.pregnancy, t = today(), me = yo();
-  const citas = S.appointments.filter(a => !a.done && pd(a.date) >= t).slice(0,3).map(a => `${a.title} el ${fmtShort(a.date)} (${[a.doctor,a.clinic].filter(Boolean).join(', ')})${a.questions?.length ? ' · preguntas ya anotadas: ' + a.questions.join('; ') : ''}`);
+  const citas = S.appointments.filter(a => !citaPasada(a)).slice(0,3).map(a => `${a.title} el ${fmtShort(a.date)} (${[a.doctor,a.clinic].filter(Boolean).join(', ')})${a.questions?.length ? ' · preguntas ya anotadas: ' + a.questions.join('; ') : ''}`);
   const res = S.tests.filter(x => x.status !== 'pendiente').slice(-6).map(x => `${x.name} (${x.date ? semanaCorta(Math.max(0,gaOf(x.date))) : ''}): ${x.result} — ${x.status}`);
   const pendTests = S.tests.filter(x => x.status === 'pendiente').map(x => `${x.name}${x.date ? ' el ' + fmtShort(x.date) : ''}`);
   const ecos = S.ultrasounds.slice(-2).map(e => `Ecografía ${semanaCorta(Math.max(0,gaOf(e.date)))}: ${[e.crl && 'CRL ' + e.crl + ' mm', e.fhr && 'FCF ' + e.fhr + ' lpm', e.comments].filter(Boolean).join(', ')}`);

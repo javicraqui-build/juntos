@@ -54,20 +54,19 @@ function actions(saveLabel, delFn){ return `<div class="actions">${delFn ? delBt
 // --- Citas ---
 function openCita(id, pre){
   const a = S.appointments.find(x => x.id === id) || Object.assign({ title:'', doctor:'', specialty:'', clinic:'', location:'', date: iso(addDays(today(), 7)) + 'T10:00', notes:'', questions:[], done:false, milestone:'' }, pre ? { title: pre.title || '', date: (pre.date || iso(addDays(today(), 7))) + 'T10:00', milestone: pre.milestone || '' } : {});
-  openSheet(`<h2>${id ? 'Cita' : 'Nueva cita'}</h2><p class="sub">${id ? cap(fmtLong(a.date)) + ' · ' + semanaTxt(Math.max(0,gaOf(a.date))) : 'Guarda la cita con las preguntas que quieran hacer.'}</p>
+  openSheet(`<h2>${id ? 'Cita' : 'Nueva cita'}</h2><p class="sub">${id ? cap(fmtLong(a.date)) + (fmtTime(a.date) ? ' · ' + fmtTime(a.date) : '') + ' · ' + semanaTxt(Math.max(0,gaOf(a.date))) + (citaPasada(a) ? ' · <span class="chip sage" style="padding:2px 8px">ya fue</span>' : '') : 'Guarda la cita con las preguntas que quieran hacer. Pasa a "anteriores" sola cuando llegue la fecha y hora.'}</p>
     <form onsubmit="event.preventDefault(); saveCita('${id||''}', this)">
       ${fld('Título', 'title', 'text', a.title, 'required placeholder="Ecografía del primer trimestre"')}
       <div class="field-row">${fld('Fecha', 'date', 'date', a.date.slice(0,10), 'required')}${fld('Hora', 'time', 'time', a.date.slice(11,16))}</div>
       <div class="field-row">${fld('Médico/a', 'doctor', 'text', a.doctor)}${fld('Especialidad', 'specialty', 'text', a.specialty)}</div>
       <div class="field-row">${fld('Clínica', 'clinic', 'text', a.clinic)}${fld('Ubicación', 'location', 'text', a.location)}</div>
       ${txt('Preguntas para hacer (una por línea)', 'questions', (a.questions||[]).join('\n'), '¿Se confirma la fecha probable de parto?')}
-      ${txt('Notas', 'notes', a.notes, 'Qué nos dijeron, qué toca después…')}
-      ${sel('Estado', 'done', [['0','Próxima'],['1','Ya fue']], a.done ? '1' : '0')}
+      ${txt(citaPasada(a) ? 'Qué nos dijeron' : 'Notas', 'notes', a.notes, 'Qué nos dijeron, qué toca después…')}
       ${sel('Hito de la evolución que cubre esta cita', 'milestone', [['','Ninguno'], ...HITOS_BASE.filter(h => ['consulta1','eco1','nipt','eco12','eco20','intrauterino','latido','sexo'].includes(h.key)).map(h => [h.key, h.title])], a.milestone || '')}
       ${actions('Guardar', id ? `delCita('${id}')` : null)}
     </form>`);
 }
-function saveCita(id, form){ const f = fd(form); const a = getOrNew(S.appointments, id); Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: f.questions.split('\n').map(s => s.trim()).filter(Boolean), notes:f.notes, done: f.done === '1', milestone: f.milestone || '' }); if (a.milestone) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done: a.done, date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
+function saveCita(id, form){ const f = fd(form); const a = getOrNew(S.appointments, id); Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: f.questions.split('\n').map(s => s.trim()).filter(Boolean), notes:f.notes, milestone: f.milestone || '' }); delete a.done; if (a.milestone) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done: citaPasada(a), date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
 function delCita(id){ S.appointments = S.appointments.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Análisis ---

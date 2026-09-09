@@ -144,12 +144,12 @@ function rowCita(a){
   const d = pd(a.date);
   return `<div class="row clickable" onclick="openCita('${a.id}')"><div class="ic date"><b class="num">${d.getDate()}</b><small>${fmt(d,{month:'short'}).replace('.','')}</small></div>
     <div class="body"><h4>${esc(a.title)}</h4><p>${[fmtTime(a.date), a.doctor, a.clinic].filter(Boolean).map(esc).join(' · ')}</p></div>
-    <div class="tail">${a.done ? '<span class="chip sage">Hecha</span>' : `<span class="chip plum num">${relDias(diffDays(d, today()))}</span>`}</div></div>`;
+    <div class="tail">${citaPasada(a) ? '<span class="chip sage">Ya fue</span>' : `<span class="chip plum num">${relDias(diffDays(d, today()))}</span>`}</div></div>`;
 }
 function renderCitas(){
   const t = today();
-  const prox = S.appointments.filter(a => !a.done && pd(a.date) >= t).sort((a,b) => a.date.localeCompare(b.date));
-  const ant = S.appointments.filter(a => a.done || pd(a.date) < t).sort((a,b) => b.date.localeCompare(a.date));
+  const prox = S.appointments.filter(a => !citaPasada(a)).sort((a,b) => a.date.localeCompare(b.date));
+  const ant = S.appointments.filter(a => citaPasada(a)).sort((a,b) => b.date.localeCompare(a.date));
   return `<div class="section" style="margin-top:4px"><div class="section-head"><h2>Próximas citas</h2></div>
     ${prox.length ? `<div class="card" style="padding:4px 18px">${prox.map(rowCita).join('')}</div>` : emptyState(I.calendar, 'No hay próximas citas guardadas', 'Cuando reserven una consulta o una ecografía, guárdenla aquí con las preguntas que quieran hacer.', `<button class="btn soft sm" onclick="openCita()">Añadir cita</button>`)}
     </div>
@@ -274,7 +274,7 @@ function preguntarCon(q){ L.tab = 'preguntar'; saveLocal(); render(); setTimeout
 
 function contextoIA(){
   const P = preg(), p = S.pregnancy, t = today(), me = yo();
-  const citas = S.appointments.filter(a => !a.done && pd(a.date) >= t).slice(0,3).map(a => `${a.title} el ${fmtShort(a.date)} (${[a.doctor,a.clinic].filter(Boolean).join(', ')})${a.questions?.length ? ' · preguntas ya anotadas: ' + a.questions.join('; ') : ''}`);
+  const citas = S.appointments.filter(a => !citaPasada(a)).slice(0,3).map(a => `${a.title} el ${fmtShort(a.date)} (${[a.doctor,a.clinic].filter(Boolean).join(', ')})${a.questions?.length ? ' · preguntas ya anotadas: ' + a.questions.join('; ') : ''}`);
   const res = S.tests.filter(x => x.status !== 'pendiente').slice(-6).map(x => `${x.name} (${x.date ? semanaCorta(Math.max(0,gaOf(x.date))) : ''}): ${x.result} — ${x.status}`);
   const pendTests = S.tests.filter(x => x.status === 'pendiente').map(x => `${x.name}${x.date ? ' el ' + fmtShort(x.date) : ''}`);
   const ecos = S.ultrasounds.slice(-2).map(e => `Ecografía ${semanaCorta(Math.max(0,gaOf(e.date)))}: ${[e.crl && 'CRL ' + e.crl + ' mm', e.fhr && 'FCF ' + e.fhr + ' lpm', e.comments].filter(Boolean).join(', ')}`);
