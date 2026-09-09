@@ -60,10 +60,10 @@ function openCita(id, pre){
       <div class="field-row">${fld('Fecha', 'date', 'date', a.date.slice(0,10), 'required')}${fld('Hora', 'time', 'time', a.date.slice(11,16))}</div>
       <div class="field-row">${fld('Médico/a', 'doctor', 'text', a.doctor)}${fld('Especialidad', 'specialty', 'text', a.specialty)}</div>
       <div class="field-row">${fld('Clínica', 'clinic', 'text', a.clinic)}${fld('Ubicación', 'location', 'text', a.location)}</div>
-      <div class="field"><label>${citaPasada(a) ? 'Preguntas y respuestas' : 'Preguntas para hacer'}</label>
-        <div id="preg-rows">${preguntasDe(a).map((x, i) => filaPregunta(i, x, citaPasada(a))).join('')}</div>
-        <div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn ghost sm" onclick="addPregunta(${citaPasada(a)})">${I.plus.replace('<svg', '<svg style="width:16px;height:16px;vertical-align:-3px"')} Añadir pregunta</button>${id && !citaPasada(a) ? `<button type="button" class="link" onclick="preguntarSobreCita('${id}')">¿Qué más deberíamos preguntar?</button>` : ''}</div>
-        ${citaPasada(a) ? '<p class="hint">Anota lo que respondieron a cada pregunta: el asistente lo tiene en cuenta después.</p>' : ''}</div>
+      ${(() => { const conResp = pd(a.date) <= today(); const esHoy = iso(pd(a.date)) === iso(today()); return `<div class="field"><label>${conResp ? 'Preguntas y respuestas' : 'Preguntas para hacer'}</label>
+        <div id="preg-rows">${preguntasDe(a).map((x, i) => filaPregunta(i, x, conResp)).join('')}</div>
+        <div style="display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap"><button type="button" class="btn ghost sm" onclick="addPregunta(${conResp})">${I.plus.replace('<svg', '<svg style="width:16px;height:16px;vertical-align:-3px"')} Añadir pregunta</button>${id && !citaPasada(a) ? `<button type="button" class="link" onclick="preguntarSobreCita('${id}')">¿Qué más deberíamos preguntar?</button>` : ''}</div>
+        <p class="hint">${conResp ? (esHoy ? 'Es hoy: puedes ir anotando cada respuesta durante la cita. El asistente lo tiene en cuenta después.' : 'Anota lo que respondieron a cada pregunta: el asistente lo tiene en cuenta después.') : 'El día de la cita aparece un campo de respuesta bajo cada pregunta.'}</p></div>`; })()}
       ${txt(citaPasada(a) ? 'Qué nos dijeron' : 'Notas', 'notes', a.notes, 'Qué nos dijeron, qué toca después…')}
       ${sel('Hito de la evolución que cubre esta cita', 'milestone', [['','Ninguno'], ...HITOS_BASE.filter(h => ['consulta1','eco1','nipt','eco12','eco20','intrauterino','latido','sexo'].includes(h.key)).map(h => [h.key, h.title])], a.milestone || '')}
       ${actions('Guardar', id ? `delCita('${id}')` : null)}
