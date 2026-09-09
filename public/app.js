@@ -68,7 +68,7 @@ function saveLocal(){ try { localStorage.setItem('juntos.local', JSON.stringify(
 
 function emptyWorkspace(){
   return { v:1, createdAt: iso(today()), pregnancy:{ lmp:null, eddOverride:null, maternalAge:null, firstPregnancy:null, type:'unico', country:'ES', names:{mother:'', partner:''}, inviteCode: code6() },
-    appointments:[], tests:[], ultrasounds:[], symptoms:[], milestones:{}, customMilestones:[], memories:[], names:[], family:[], tasks:[], chat:[], demo:false };
+    appointments:[], tests:[], ultrasounds:[], symptoms:[], milestones:{}, customMilestones:[], memories:[], names:[], family:[], tasks:[], kicks:[], contractions:[], vitals:[], chat:[], demo:false };
 }
 function code6(){ const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for(let i=0;i<6;i++) s += a[Math.floor(Math.random()*a.length)]; return s; }
 
@@ -95,6 +95,8 @@ function contenido(w){ const k = clamp(w, 1, 42); return SEMANAS.find(x => x.w =
 function comoTxt(c){ return c.cm ? `El bebé es como ${c.cmp}.` : 'Todavía no hay embrión que medir.'; }
 // Preguntas de una cita como [{ q, a }] (acepta el formato viejo de cadenas)
 function preguntasDe(a){ return (a?.questions || []).map(x => typeof x === 'string' ? { q: x, a: '' } : { q: x?.q || '', a: x?.a || '' }).filter(x => x.q); }
+// Tensión arterial: nivel según umbrales habituales en el embarazo
+function nivelTension(sis, dia){ sis = Number(sis) || 0; dia = Number(dia) || 0; if (!sis && !dia) return null; if (sis >= 160 || dia >= 110) return 'grave'; if (sis >= 140 || dia >= 90) return 'alta'; if (sis < 90 || dia < 60) return 'baja'; return 'normal'; }
 function citaPasada(a){ if (!a?.date) return false; const [d, t] = a.date.split('T'); const x = pd(d); if (t) { const [hh, mm] = t.split(':').map(Number); x.setHours(hh || 0, mm || 0, 0, 0); } else x.setHours(23, 59, 0, 0); return x <= new Date(); }
 function hitoFecha(h){ return addDays(preg().lmpEff, h.w*7 + (h.d||0)); }
 
@@ -148,7 +150,9 @@ function paraHoy(){
   if (P.nacido) return out;
   const ahora = new Date();
   const citas = S.appointments.filter(a => !citaPasada(a)).map(a => ({ a, n: diffDays(pd(a.date), t) })).filter(x => x.n <= 1).sort((x, y) => x.a.date.localeCompare(y.a.date));
-  for (const { a, n } of citas) { const nq = preguntasDe(a).length; out.push({ ic:I.calendar, txt:`${n === 0 ? 'Hoy' : 'Mañana'}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}: ${a.title}`, sub: nq ? `${nq} ${nq === 1 ? 'pregunta anotada' : 'preguntas anotadas'}` : 'Sin preguntas anotadas todavía', fn:`openCita('${a.id}')` }); }
+  for (const { a, n } of citas) { const nq = preguntasDe(a).length; out.push({ ic:I.calendar, txt:`${n === 0 ? 'Hoy' : 'Mañana'}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}: ${a.title}`, sub: n === 0 ? (nq ? `${nq} ${nq === 1 ? 'pregunta' : 'preguntas'} · toca para anotar las respuestas` : 'Toca para anotar lo que digan') : (nq ? `${nq} ${nq === 1 ? 'pregunta anotada' : 'preguntas anotadas'} · toca para preparar la cita` : 'Sin preguntas todavía · toca para preparar la cita'), fn: n === 0 ? `openCitaHoy('${a.id}')` : `openPreparar('${a.id}')` }); }
+  const ultimaTA = [...(S.vitals || [])].filter(v => v.systolic).sort((x, y) => y.date.localeCompare(x.date))[0];
+  if (ultimaTA && ['alta','grave'].includes(nivelTension(ultimaTA.systolic, ultimaTA.diastolic)) && diffDays(t, pd(ultimaTA.date)) <= 1) out.push({ ic:I.alert, txt:`Tensión ${ultimaTA.systolic}/${ultimaTA.diastolic} ${diffDays(t, pd(ultimaTA.date)) === 0 ? 'hoy' : 'ayer'}`, sub: nivelTension(ultimaTA.systolic, ultimaTA.diastolic) === 'grave' ? 'Contacta con el equipo médico ahora' : 'Conviene repetirla y avisar al equipo médico', fn:`go('salud'); subSalud('sintomas')` });
   const mias = S.tasks.filter(x => x.status !== 'hecha' && x.due && (x.owner === me || x.owner === 'both') && diffDays(pd(x.due), t) <= 0).sort((a, b) => a.due.localeCompare(b.due));
   for (const x of mias.slice(0, 2)) { const atras = -diffDays(pd(x.due), t); out.push({ ic:I.list, txt:`${atras ? 'Atrasada' : 'Para hoy'}: ${x.title}`, sub: atras ? `Vencía hace ${atras} ${atras === 1 ? 'día' : 'días'}` : (x.owner === 'both' ? 'De los dos' : 'A tu cargo'), fn:`openTarea('${x.id}')` }); }
   if (me === 'partner') {
@@ -160,6 +164,8 @@ function paraHoy(){
   } else if (me === 'mother' && P.w >= 5 && !S.symptoms.some(s => s.date === iso(t)) && ahora.getHours() >= 12) {
     out.push({ ic:I.mood, txt:'¿Cómo te sientes hoy?', sub:'Un minuto. Sirve para la próxima cita', fn:`openSintomas()` });
   }
+  const sinCerrar = S.appointments.filter(a => citaPasada(a) && !a.resumen && (a.notes || preguntasDe(a).some(x => x.a)) && diffDays(t, pd(a.date)) <= 7).sort((x, y) => y.date.localeCompare(x.date))[0];
+  if (sinCerrar) out.push({ ic:I.spark, txt:`Cerrar la cita: ${sinCerrar.title}`, sub:'Resumen, tareas y análisis que se desprenden', fn:`openCierreCita('${sinCerrar.id}')` });
   const hito = timeline().find(h => !h.done && !h.custom && !h.citaId && !h.emocional && h.date > t && diffDays(h.date, t) <= 10);
   if (hito && !citas.length) out.push({ ic:I.timeline, txt:`En ${diffDays(hito.date, t)} días toca: ${hito.title}`, sub:'Si ya tienen fecha, créala como cita', fn:`openHito('${hito.id}')` });
   return out.slice(0, 4);
@@ -222,6 +228,8 @@ function demoWorkspace(){
     { id:uid(), title:'Revisar la licencia parental de cada uno', owner:'partner', due: iso(addDays(t, 14)), status:'pendiente', notes:'' },
     { id:uid(), title:'Preparar las preguntas para la eco de la semana 12', owner:'both', due: iso(addDays(t, 12)), status:'pendiente', notes:'' }
   ];
+  W.kicks = []; W.contractions = [];
+  W.vitals = [ { id:uid(), date: at(7,3), weight:'61.2', systolic:'112', diastolic:'68', note:'' }, { id:uid(), date: iso(addDays(t, -2)), weight:'62.0', systolic:'115', diastolic:'70', note:'' } ];
   W.chat = [];
   return W;
 }
@@ -383,9 +391,9 @@ function renderEvolucion(){
 // ====== SALUD ======
 function renderSalud(){
   const sub = L.sub.salud || 'citas';
-  const seg = [['citas','Citas'],['analisis','Análisis'],['ecos','Ecografías'],['sintomas','Síntomas']].map(([k,l]) => `<button class="${sub===k?'on':''}" onclick="subSalud('${k}')">${l}</button>`).join('');
-  const body = { citas: renderCitas, analisis: renderAnalisis, ecos: renderEcos, sintomas: renderSintomas }[sub]();
-  const fabs = { citas: `openCita()`, analisis: `openAnalisis()`, ecos: `openEco()`, sintomas: yo() === 'mother' ? `openSintomas()` : null };
+  const seg = [['citas','Citas'],['analisis','Análisis'],['ecos','Ecografías'],['sintomas','Síntomas'],['bebe','Bebé']].map(([k,l]) => `<button class="${sub===k?'on':''}" onclick="subSalud('${k}')">${l}</button>`).join('');
+  const body = ({ citas: renderCitas, analisis: renderAnalisis, ecos: renderEcos, sintomas: renderSintomas, bebe: renderBebe }[sub] || renderCitas)();
+  const fabs = { citas: `openCita()`, analisis: `openAnalisis()`, ecos: `openEco()`, sintomas: yo() === 'mother' ? `openSintomas()` : null, bebe: null };
   return `${topbar('Salud')}<h1 class="h-page">Salud</h1><p class="sub">Todo lo médico, claro y en un solo lugar.</p><div class="seg">${seg}</div>${body}${disclaimer()}
     ${fabs[sub] ? `<button class="fab" onclick="${fabs[sub]}" aria-label="Añadir">${I.plus}</button>` : ''}`;
 }
@@ -432,7 +440,81 @@ function renderSintomas(){
       ${hoy ? `<div class="chips">${top.length ? top.map(x => `<span class="chip ${hoy.values[x.k]===3?'red':hoy.values[x.k]===2?'amber':'sage'}">${x.l} · ${ESCALA[hoy.values[x.k]].toLowerCase()}</span>`).join('') : '<span class="chip sage">Sin síntomas destacables</span>'}</div>${hoy.note ? `<p class="sub" style="margin-top:10px">${esc(hoy.note)}</p>` : ''}` : `<p class="sub">${ella ? 'Todavía no has registrado cómo te sientes hoy. Un minuto alcanza.' : `${esc(quien('mother'))} todavía no ha registrado cómo se siente hoy.`}</p>`}
     </div></div>
     ${hist.length ? `<div class="section"><div class="section-head"><h2>Últimos días</h2></div><div class="card"><div class="sym-hist">${hist.map(s => `<div class="sym-day" ${ella ? `onclick="openSintomas('${s.date}')" role="button" tabindex="0" style="cursor:pointer"` : ''}><div class="bar"><i style="height:${Math.max(4, Math.min(44, score(s)*3))}px" title="${score(s)}"></i></div><span class="num">${fmtShort(s.date)}</span></div>`).join('')}</div><p class="sub" style="font-size:13px;margin-top:8px">La altura resume la intensidad total del día. Sirve para ver tendencias, no para diagnosticar.${ella ? ' Toca un día para editarlo, o cambia la fecha al registrar para añadir uno anterior.' : ''}</p></div></div>` : ''}
+    ${renderConstantes()}
     <div class="section"><div class="card soft"><span class="eyebrow">Cuándo consultar sin esperar</span><p class="sub" style="margin-top:6px">Sangrado abundante, dolor abdominal intenso o en un solo lado, desmayo, dolor de cabeza fuerte con alteraciones de la visión, dificultad para respirar o fiebre alta. Ante cualquiera de estas señales, contacta con tu equipo médico o llama al ${esc(pais().emergencias)}.</p></div></div>`;
+}
+
+// Peso y tensión de ella, como serie
+function renderConstantes(){
+  const ella = yo() === 'mother';
+  const list = [...(S.vitals || [])].sort((a, b) => a.date.localeCompare(b.date));
+  const ult = list[list.length - 1];
+  const nivel = ult ? nivelTension(ult.systolic, ult.diastolic) : null;
+  const chipTA = nivel === 'grave' ? '<span class="chip red">Muy alta</span>' : nivel === 'alta' ? '<span class="chip amber">Alta</span>' : nivel === 'baja' ? '<span class="chip amber">Baja</span>' : nivel === 'normal' ? '<span class="chip sage">Normal</span>' : '';
+  const pesos = list.filter(v => v.weight), tas = list.filter(v => v.systolic && v.diastolic);
+  return `<div class="section"><div class="card">
+    <div class="section-head" style="margin-bottom:8px"><h3 style="font-size:19px">Peso y tensión</h3>${ella ? `<button class="link" onclick="openConstantes()">Registrar</button>` : ''}</div>
+    ${ult ? `<p class="sub">Último registro ${cap(fmtShort(ult.date))}: ${ult.weight ? `<b class="num">${esc(String(ult.weight).replace('.', ','))} kg</b>` : ''}${ult.weight && ult.systolic ? ' · ' : ''}${ult.systolic ? `<b class="num">${esc(ult.systolic)}/${esc(ult.diastolic)}</b> ${chipTA}` : ''}</p>` : `<p class="sub">${ella ? 'Anota el peso y la tensión cuando te los tomen (o en casa): se ven como una serie y el asistente los tiene en cuenta.' : `${esc(quien('mother'))} todavía no ha registrado peso ni tensión.`}</p>`}
+    ${['alta','grave'].includes(nivel) ? `<div class="alert-urgent" style="margin-top:10px"><strong>${nivel === 'grave' ? 'Tensión muy alta' : 'Tensión alta'}</strong>${nivel === 'grave' ? 'Con 160/110 o más, contacta con tu equipo médico ahora o acude a urgencias, sobre todo si hay dolor de cabeza, visión borrosa o hinchazón repentina.' : 'A partir de 140/90 conviene repetirla sentada y en reposo y avisar a tu equipo médico hoy.'}</div>` : ''}
+    ${pesos.length >= 2 ? grafico(pesos.map(v => ({ x: v.date, y: Number(v.weight) })), { label:'Peso (kg)', unit:' kg', color:'var(--accent)' }) : ''}
+    ${tas.length >= 2 ? grafico(tas.map(v => ({ x: v.date, y: Number(v.systolic), y2: Number(v.diastolic) })), { label:'Tensión (sistólica / diastólica)', unit:'', color:'var(--accent)', color2:'var(--warm)', lines:[{ y:140, txt:'140' }, { y:90, txt:'90' }], min:50, max:170 }) : ''}
+    ${list.length ? `<div style="margin-top:10px"><button class="link" style="font-size:13px" onclick="openHistorialConstantes()">Ver todos los registros</button></div>` : ''}
+  </div></div>`;
+}
+// Gráfico de líneas mínimo (SVG): una o dos series de la misma medida, un eje, últimos 12 puntos
+function grafico(pts, o){
+  pts = pts.slice(-12); const W = 320, H = 120, px = 34, py = 14, pr = 44;
+  const ys = pts.flatMap(p => [p.y, p.y2]).filter(v => Number.isFinite(v));
+  let min = o.min ?? Math.min(...ys), max = o.max ?? Math.max(...ys); if (max - min < 4) { min -= 2; max += 2; }
+  const X = i => px + (pts.length === 1 ? (W - px - pr) / 2 : i * (W - px - pr) / (pts.length - 1)), Y = v => py + (H - 2 * py) * (1 - (v - min) / (max - min));
+  const path = k => pts.map((p, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(p[k]).toFixed(1)}`).join(' ');
+  const dots = k => pts.map((p, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(p[k]).toFixed(1)}" r="4" fill="var(--surface)" stroke="${k === 'y' ? o.color : o.color2}" stroke-width="2"><title>${fmtShort(p.x)}: ${p[k]}${o.unit}</title></circle>`).join('');
+  const last = pts[pts.length - 1];
+  return `<div class="chart"><div class="chart-head"><span>${esc(o.label)}</span>${o.color2 ? `<span class="legend"><i style="background:${o.color}"></i>sistólica <i style="background:${o.color2}"></i>diastólica</span>` : ''}</div>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${esc(o.label)}">
+      ${(o.lines || []).filter(l => l.y > min && l.y < max).map(l => `<line x1="${px}" x2="${W - pr}" y1="${Y(l.y).toFixed(1)}" y2="${Y(l.y).toFixed(1)}" stroke="var(--red)" stroke-dasharray="3 4" stroke-width="1" opacity=".7"/><text x="${px - 4}" y="${(Y(l.y) + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--red)">${l.txt}</text>`).join('')}
+      <line x1="${px}" x2="${W - pr}" y1="${H - py}" y2="${H - py}" stroke="var(--line)"/>
+      <text x="${px - 4}" y="${(Y(max) + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--ink3)">${Math.round(max)}</text><text x="${px - 4}" y="${(Y(min) + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--ink3)">${Math.round(min)}</text>
+      <path d="${path('y')}" fill="none" stroke="${o.color}" stroke-width="2" stroke-linejoin="round"/>${dots('y')}
+      ${o.color2 ? `<path d="${path('y2')}" fill="none" stroke="${o.color2}" stroke-width="2" stroke-linejoin="round"/>${dots('y2')}` : ''}
+      <text x="${(X(pts.length - 1) + 6).toFixed(1)}" y="${(Y(last.y) + 4).toFixed(1)}" font-size="11" font-weight="600" fill="var(--ink)">${last.y}</text>${o.color2 ? `<text x="${(X(pts.length - 1) + 6).toFixed(1)}" y="${(Y(last.y2) + 4).toFixed(1)}" font-size="11" font-weight="600" fill="var(--ink)">${last.y2}</text>` : ''}
+    </svg><div class="chart-x"><span>${fmtShort(pts[0].x)}</span><span>${fmtShort(last.x)}</span></div></div>`;
+}
+
+// ====== BEBÉ: movimientos y contracciones ======
+function renderBebe(){
+  const P = preg(), ella = yo() === 'mother';
+  const kicks = [...(S.kicks || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const contr = [...(S.contractions || [])].sort((a, b) => b.date.localeCompare(a.date));
+  const enCurso = KICK.start ? `<span class="chip amber">Sesión en curso · ${KICK.count}</span>` : '';
+  const cEnCurso = CONTR.list.length || CONTR.current ? `<span class="chip amber">En curso · ${CONTR.list.length}</span>` : '';
+  const kRow = k => { const mins = k.mins || 0; const ok = k.count >= 10; return `<div class="row"><div class="ic" style="${ok ? '' : 'color:var(--amber)'}">${I.baby}</div><div class="body"><h4>${k.count} ${k.count === 1 ? 'movimiento' : 'movimientos'} en ${mins} min</h4><p>${cap(fmtShort(k.date))}${fmtTime(k.date) ? ' · ' + fmtTime(k.date) : ''}${k.note ? ' · ' + esc(k.note) : ''}</p></div><div class="tail">${ok ? '<span class="chip sage">10 alcanzados</span>' : mins >= 120 ? '<span class="chip amber">Menos de 10</span>' : ''}</div></div>`; };
+  const cRow = c => { const st = statsContracciones(c.contractions || []); return `<div class="row"><div class="ic">${I.wave}</div><div class="body"><h4>${(c.contractions || []).length} contracciones${st.n >= 2 ? ` · cada ${st.intervalo} min · ${st.duracion} s` : ''}</h4><p>${cap(fmtShort(c.date))}${fmtTime(c.date) ? ' · ' + fmtTime(c.date) : ''}${c.note ? ' · ' + esc(c.note) : ''}</p></div><div class="tail">${st.alerta ? '<span class="chip red">5-1-1</span>' : ''}</div></div>`; };
+  return `<div class="section" style="margin-top:4px"><div class="card">
+      <div class="section-head" style="margin-bottom:6px"><h3 style="font-size:19px">Movimientos del bebé</h3>${enCurso}</div>
+      <p class="sub">${P.w < 28 ? `Contar movimientos tiene sentido a partir de la semana 28 (están en la ${P.w}). Antes, sentirlo es suficiente.` : 'Elige un rato en el que suela moverse, túmbate de lado y cuenta: lo habitual es llegar a 10 movimientos en menos de 2 horas. Si un día notas claramente menos, consulta sin esperar.'}</p>
+      ${ella ? `<div style="margin-top:12px"><button class="btn ${KICK.start ? 'soft' : ''} block" onclick="openMovimientos()">${KICK.start ? 'Seguir contando' : 'Empezar a contar'}</button></div>` : `<p class="sub" style="margin-top:8px">Cuenta ${esc(quien('mother'))}; tú ves las sesiones aquí.</p>`}
+    </div>
+    ${kicks.length ? `<div class="card" style="padding:4px 18px;margin-top:12px">${kicks.slice(0, 5).map(kRow).join('')}</div>` : ''}
+    </div>
+    <div class="section"><div class="card">
+      <div class="section-head" style="margin-bottom:6px"><h3 style="font-size:19px">Contracciones</h3>${cEnCurso}</div>
+      <p class="sub">${P.w < 36 ? 'Las contracciones de práctica (Braxton Hicks) son irregulares y se pasan al cambiar de postura o descansar. Si antes de la semana 37 son regulares y van a más, llama.' : 'Cronometra cada una desde que empieza hasta que termina. La referencia para ir al hospital suele ser 5-1-1: cada 5 minutos, de 1 minuto, durante 1 hora (pregunten a su equipo cuál es la suya).'}</p>
+      <div style="margin-top:12px"><button class="btn ${CONTR.list.length ? 'soft' : ''} block" onclick="openContracciones()">${CONTR.list.length || CONTR.current ? 'Seguir cronometrando' : 'Cronometrar contracciones'}</button></div>
+    </div>
+    ${contr.length ? `<div class="card" style="padding:4px 18px;margin-top:12px">${contr.slice(0, 5).map(cRow).join('')}</div>` : ''}
+    </div>`;
+}
+function statsContracciones(list){
+  const done = list.filter(c => c.s && c.e); const n = done.length;
+  if (n < 2) return { n, intervalo: null, duracion: null, alerta: false };
+  const ult = done.slice(-6);
+  const ints = ult.slice(1).map((c, i) => (c.s - ult[i].s) / 60000);
+  const durs = ult.map(c => (c.e - c.s) / 1000);
+  const intervalo = Math.round(ints.reduce((a, b) => a + b, 0) / ints.length), duracion = Math.round(durs.reduce((a, b) => a + b, 0) / durs.length);
+  const span = (done[n - 1].s - done[Math.max(0, n - 12)].s) / 60000;
+  const alerta = n >= 6 && intervalo <= 5 && duracion >= 45 && span >= 50;
+  return { n, intervalo, duracion, alerta };
 }
 
 // ====== NOSOTROS ======
@@ -530,7 +612,7 @@ function preguntarCon(q){ L.tab = 'preguntar'; saveLocal(); render(); setTimeout
 function contextoIA(){
   const P = preg(), p = S.pregnancy, t = today(), me = yo();
   const citas = S.appointments.filter(a => !citaPasada(a)).sort((x, y) => x.date.localeCompare(y.date)).slice(0,3).map(a => `${a.title} el ${fmtShort(a.date)} (${[a.doctor,a.clinic].filter(Boolean).join(', ')})${preguntasDe(a).length ? ' · preguntas ya anotadas: ' + preguntasDe(a).map(x => x.q).join('; ') : ''}`);
-  const pasadas = S.appointments.filter(a => citaPasada(a)).sort((x, y) => y.date.localeCompare(x.date)).slice(0,3).map(a => { const qa = preguntasDe(a).filter(x => x.a).map(x => `${x.q} → ${x.a}`); return `${a.title} (${fmtShort(a.date)}${a.doctor ? ', ' + a.doctor : ''})${a.notes ? ': ' + a.notes : ''}${qa.length ? ' · Preguntas y respuestas: ' + qa.join(' | ') : ''}`; }).filter(x => x.includes(':') || x.includes('Preguntas'));
+  const pasadas = S.appointments.filter(a => citaPasada(a)).sort((x, y) => y.date.localeCompare(x.date)).slice(0,3).map(a => { const qa = preguntasDe(a).filter(x => x.a).map(x => `${x.q} → ${x.a}`); return `${a.title} (${fmtShort(a.date)}${a.doctor ? ', ' + a.doctor : ''})${a.resumen ? ': ' + a.resumen : a.notes ? ': ' + a.notes : ''}${qa.length ? ' · Preguntas y respuestas: ' + qa.join(' | ') : ''}`; }).filter(x => x.includes(':') || x.includes('Preguntas'));
   const res = S.tests.filter(x => x.status !== 'pendiente').slice(-6).map(x => `${x.name} (${x.date ? semanaCorta(Math.max(0,gaOf(x.date))) : ''}): ${x.result} — ${x.status}`);
   const pendTests = S.tests.filter(x => x.status === 'pendiente').map(x => `${x.name}${x.date ? ' el ' + fmtShort(x.date) : ''}`);
   const ecos = S.ultrasounds.slice(-2).map(e => `Ecografía ${semanaCorta(Math.max(0,gaOf(e.date)))}: ${[e.crl && 'CRL ' + e.crl + ' mm', e.fhr && 'FCF ' + e.fhr + ' lpm', e.comments].filter(Boolean).join(', ')}`);
@@ -549,7 +631,10 @@ function contextoIA(){
 - Resultados guardados: ${res.join(' | ') || 'ninguno'}.
 - Ecografías: ${ecos.join(' | ') || 'ninguna'}.
 - Síntomas recientes: ${sint.join(' | ') || 'sin registros'}.
-- Hitos completados: ${hitos.join(', ') || 'ninguno'}.`;
+- Hitos completados: ${hitos.join(', ') || 'ninguno'}.
+- Peso y tensión de ella (últimos): ${[...(S.vitals || [])].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5).map(v => `${fmtShort(v.date)}: ${v.weight ? v.weight + ' kg' : ''}${v.weight && v.systolic ? ', ' : ''}${v.systolic ? 'TA ' + v.systolic + '/' + v.diastolic : ''}`).join(' | ') || 'sin registros'}.
+- Movimientos del bebé (sesiones recientes): ${[...(S.kicks || [])].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3).map(k => `${fmtShort(k.date)}: ${k.count} en ${k.mins} min`).join(' | ') || 'sin registros'}.
+- Contracciones (última sesión): ${(() => { const c = [...(S.contractions || [])].sort((a, b) => b.date.localeCompare(a.date))[0]; if (!c) return 'sin registros'; const st = statsContracciones(c.contractions || []); return `${fmtShort(c.date)}: ${(c.contractions || []).length} contracciones${st.n >= 2 ? `, cada ${st.intervalo} min, de ${st.duracion} s` : ''}${st.alerta ? ' (patrón 5-1-1)' : ''}`; })()}.`;
 }
 const REGLAS_IA = `Eres el asistente de "juntos", una app de acompañamiento del embarazo para parejas. Responde SIEMPRE en español neutro y natural (válido para España y Latinoamérica), tuteando, en un tono calmado, cálido y honesto. Nunca uses inglés.
 Reglas:

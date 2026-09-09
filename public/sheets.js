@@ -55,6 +55,7 @@ function actions(saveLabel, delFn){ return `<div class="actions">${delFn ? delBt
 function openCita(id, pre){
   const a = S.appointments.find(x => x.id === id) || Object.assign({ title:'', doctor:'', specialty:'', clinic:'', location:'', date: iso(addDays(today(), 7)) + 'T10:00', notes:'', questions:[], done:false, milestone:'' }, pre ? { title: pre.title || '', date: (pre.date || iso(addDays(today(), 7))) + 'T10:00', milestone: pre.milestone || '', questions: pre.questions || [] } : {});
   openSheet(`<h2>${id ? 'Cita' : 'Nueva cita'}</h2><p class="sub">${id ? cap(fmtLong(a.date)) + (fmtTime(a.date) ? ' · ' + fmtTime(a.date) : '') + ' · ' + semanaTxt(Math.max(0,gaOf(a.date))) + (citaPasada(a) ? ' · <span class="chip sage" style="padding:2px 8px">ya fue</span>' : '') : 'Guarda la cita con las preguntas que quieran hacer. Pasa a "anteriores" sola cuando llegue la fecha y hora.'}</p>
+    ${id && a.resumen ? `<div class="card accent" style="margin-bottom:14px"><span class="eyebrow">Lo que nos llevamos</span><p class="sub" style="margin-top:4px">${esc(a.resumen)}</p><div style="margin-top:8px"><button class="link" style="font-size:13px" onclick="openCierreCita('${id}')">Volver a generar</button></div></div>` : id && citaPasada(a) ? `<div style="margin-bottom:14px"><button class="btn soft sm block" onclick="openCierreCita('${id}')">Cerrar la cita: resumen, tareas y análisis</button></div>` : ''}
     <form onsubmit="event.preventDefault(); saveCita('${id||''}', this)">
       ${fld('Título', 'title', 'text', a.title, 'required placeholder="Ecografía del primer trimestre"')}
       <div class="field-row">${fld('Fecha', 'date', 'date', a.date.slice(0,10), 'required')}${fld('Hora', 'time', 'time', a.date.slice(11,16))}</div>
@@ -74,7 +75,7 @@ function filaPregunta(i, x, conRespuesta){
 }
 function addPregunta(conRespuesta){ const box = $('#preg-rows'); if (!box) return; const i = Date.now() % 1e7; box.insertAdjacentHTML('beforeend', filaPregunta(i, { q:'', a:'' }, conRespuesta)); box.lastElementChild.querySelector('input').focus(); }
 function leerPreguntas(f){ return Object.keys(f).filter(k => /^q\d+$/.test(k)).sort((x, y) => Number(x.slice(1)) - Number(y.slice(1))).map(k => ({ q: f[k], a: f['a' + k.slice(1)] || '' })).filter(x => x.q); }
-function saveCita(id, form){ const f = fd(form); const a = getOrNew(S.appointments, id); Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: leerPreguntas(f), notes:f.notes, milestone: f.milestone || '' }); delete a.done; if (a.milestone) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done: citaPasada(a), date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
+function saveCita(id, form){ const f = fd(form); const a = getOrNew(S.appointments, id); Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: leerPreguntas(f), notes:f.notes, milestone: f.milestone || '' }); delete a.done; if (a.milestone) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done: citaPasada(a), date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); if (citaPasada(a) && !a.resumen && (a.notes || a.questions.some(x => x.a))) setTimeout(() => openCierreCita(a.id), 400); }
 function delCita(id){ S.appointments = S.appointments.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // Llevar a la cita las preguntas que salieron en la conversación con el asistente
@@ -112,6 +113,73 @@ function guardarPreguntas(form){
   const ya = new Set(preguntasDe(a).map(x => x.q.toLowerCase()));
   a.questions = [...preguntasDe(a), ...qs.filter(q => !ya.has(q.toLowerCase())).map(q => ({ q, a:'' }))]; closeSheet(); commit(); toast(`${qs.length} ${qs.length === 1 ? 'pregunta guardada' : 'preguntas guardadas'} en ${a.title}`);
 }
+
+// Cierre de la cita: el asistente resume y propone tareas, análisis y el hito que cubrió
+function openCierreCita(id){
+  const a = S.appointments.find(x => x.id === id); if (!a) return;
+  openSheet(`<h2>Lo que nos llevamos</h2><p class="sub">${esc(a.title)} · ${cap(fmtShort(a.date))}. Leo las notas y las respuestas y propongo qué queda por hacer. Marca lo que quieras crear.</p>
+    <div id="cierre-box"><p class="sub" style="padding:8px 0">Leyendo la cita…</p></div>`);
+  cerrarCitaIA(a).then(r => {
+    const box = $('#cierre-box'); if (!box) return;
+    if (!r) { box.innerHTML = `<p class="sub">No he podido leer la cita ahora. Puedes escribir el resumen a mano.</p>`; r = { resumen: a.resumen || '', tareas: [], analisis: [], hito: a.milestone || null }; }
+    const h = r.hito ? HITOS_BASE.find(x => x.key === r.hito) : null;
+    const yaHito = h && (S.milestones[h.key]?.done || a.milestone === h.key);
+    box.innerHTML = `<form onsubmit="event.preventDefault(); guardarCierre('${id}', this)">
+      ${txt('Resumen de la cita', 'resumen', r.resumen, 'Lo esencial que nos dijeron')}
+      ${r.tareas.length ? `<div class="field"><label>Tareas que se desprenden</label><div class="card" style="padding:6px 16px">${r.tareas.map((t, i) => `<label class="check-row"><input type="checkbox" name="t${i}" value="${esc(JSON.stringify(t))}" checked><span>${esc(t.titulo)}<small style="display:block;color:var(--ink3)">${t.quien === 'both' ? 'Los dos' : esc(quien(t.quien))} · en ${t.dias} días</small></span></label>`).join('')}</div></div>` : ''}
+      ${r.analisis.length ? `<div class="field"><label>Análisis pendientes</label><div class="card" style="padding:6px 16px">${r.analisis.map((x, i) => `<label class="check-row"><input type="checkbox" name="x${i}" value="${esc(JSON.stringify(x))}" checked><span>${esc(x.nombre)}<small style="display:block;color:var(--ink3)">${KINDS[x.tipo] || 'Otro'}${x.semana ? ' · semana ' + x.semana : ''}</small></span></label>`).join('')}</div></div>` : ''}
+      ${h && !yaHito ? `<div class="field"><label>Hito de la evolución</label><div class="card" style="padding:6px 16px"><label class="check-row"><input type="checkbox" name="hito" value="${h.key}" checked><span>Esta cita cubrió: ${esc(h.title)}<small style="display:block;color:var(--ink3)">Se marca como vivido con la fecha de la cita</small></span></label></div></div>` : ''}
+      ${!r.tareas.length && !r.analisis.length ? '<p class="sub" style="margin-bottom:12px">No veo tareas ni análisis nuevos en lo anotado.</p>' : ''}
+      <div class="actions"><button type="button" class="btn ghost" onclick="closeSheet()">Ahora no</button><button type="submit" class="btn">Guardar</button></div>
+    </form>`;
+  });
+}
+async function cerrarCitaIA(a){ return null; }   // en prod lo hace la API
+function guardarCierre(id, form){
+  const f = fd(form); const a = S.appointments.find(x => x.id === id); if (!a) return;
+  a.resumen = f.resumen || ''; a.cerrada = iso(today());
+  let nt = 0, nx = 0;
+  Object.keys(f).filter(k => /^t\d+$/.test(k)).forEach(k => { try { const t = JSON.parse(f[k]); S.tasks.push({ id: uid(), title: t.titulo, owner: t.quien || 'both', due: iso(addDays(today(), t.dias || 14)), status:'pendiente', notes:`De la cita: ${a.title} (${fmtShort(a.date)})` }); nt++; } catch (e) {} });
+  Object.keys(f).filter(k => /^x\d+$/.test(k)).forEach(k => { try { const x = JSON.parse(f[k]); let fecha = x.semana ? iso(addDays(preg().lmpEff, x.semana * 7)) : ''; if (fecha && pd(fecha) < today()) fecha = ''; S.tests.push({ id: uid(), name: x.nombre, kind: x.tipo || 'otro', date: fecha, result:'', status:'pendiente', interpretation:'', doctorNotes:`Lo pidieron en: ${a.title} (${fmtShort(a.date)})`, photo:'' }); nx++; } catch (e) {} });
+  if (f.hito) { a.milestone = f.hito; S.milestones[f.hito] = Object.assign(S.milestones[f.hito] || {}, { done:true, date: a.date.slice(0, 10) }); }
+  closeSheet(); commit(); toast(`Cita cerrada${nt ? ` · ${nt} ${nt === 1 ? 'tarea' : 'tareas'}` : ''}${nx ? ` · ${nx} análisis` : ''}`);
+}
+
+// Preparar la cita (el día antes o cuando quieran): preguntas, resultados para llevar, documentos
+function openPreparar(id){
+  const a = S.appointments.find(x => x.id === id); if (!a) return;
+  const qs = preguntasDe(a);
+  const res = [...S.tests].filter(x => x.date && x.status !== 'pendiente').sort((x, y) => y.date.localeCompare(x.date)).slice(0, 3);
+  const pend = S.tests.filter(x => x.status === 'pendiente');
+  const docs = S.tests.filter(x => x.photo).slice(-3);
+  const ultEco = [...S.ultrasounds].sort((x, y) => y.date.localeCompare(x.date))[0];
+  openSheet(`<h2>Preparar la cita</h2><p class="sub">${esc(a.title)} · ${cap(fmtLong(a.date))}${fmtTime(a.date) ? ' · ' + fmtTime(a.date) : ''}${[a.doctor, a.clinic].filter(Boolean).length ? ' · ' + [a.doctor, a.clinic].filter(Boolean).map(esc).join(', ') : ''}${a.location ? ' · ' + esc(a.location) : ''}</p>
+    <div class="card" style="margin-bottom:14px"><span class="eyebrow">Preguntas para llevar</span>
+      ${qs.length ? `<ul class="list plum" style="margin-top:6px">${qs.map(x => `<li>${esc(x.q)}</li>`).join('')}</ul>` : '<p class="sub" style="margin-top:4px">Todavía no hay preguntas anotadas.</p>'}
+      <div class="actions" style="margin-top:10px"><button class="btn ghost sm" onclick="closeSheet(); openCita('${id}')">Editar preguntas</button><button class="btn soft sm" onclick="preguntarSobreCita('${id}')">¿Qué más deberíamos preguntar?</button></div></div>
+    <div class="card" style="margin-bottom:14px"><span class="eyebrow">Para llevar</span>
+      ${res.length ? `<ul class="list" style="margin-top:6px">${res.map(x => `<li>${esc(x.name)} (${cap(fmtShort(x.date))}): ${esc(x.result || STATUS[x.status]?.[0] || '')}</li>`).join('')}</ul>` : '<p class="sub" style="margin-top:4px">No hay resultados recientes guardados.</p>'}
+      ${pend.length ? `<p class="sub" style="margin-top:8px">Pendientes de resultado: ${pend.map(x => esc(x.name)).join(', ')}.</p>` : ''}
+      ${ultEco ? `<p class="sub" style="margin-top:8px">Última ecografía: ${cap(fmtShort(ultEco.date))}${ultEco.crl ? ` · CRL ${esc(ultEco.crl)} mm` : ''}${ultEco.fhr ? ` · ${esc(ultEco.fhr)} lpm` : ''}.</p>` : ''}
+      ${docs.length ? `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px">${docs.map(x => esDoc(x.photo) ? docLink(x.photo, esc(x.name)) : `<button class="btn ghost sm" onclick="closeSheet(); openAnalisis('${x.id}')">${esc(x.name)}</button>`).join('')}</div>` : ''}</div>
+    <div class="card soft"><span class="eyebrow">El día de la cita</span><p class="sub" style="margin-top:4px">Desde Hoy entras en modo cita: las preguntas en grande y un campo para anotar cada respuesta mientras hablan.</p></div>
+    <div class="actions" style="margin-top:14px"><button class="btn ghost" onclick="closeSheet()">Cerrar</button></div>`);
+}
+// Modo cita (el día de la cita): preguntas en grande, respuestas al vuelo
+function openCitaHoy(id){
+  const a = S.appointments.find(x => x.id === id); if (!a) return;
+  const qs = preguntasDe(a);
+  openSheet(`<h2>${esc(a.title)}</h2><p class="sub">${fmtTime(a.date) ? fmtTime(a.date) + ' · ' : ''}${[a.doctor, a.clinic].filter(Boolean).map(esc).join(' · ') || 'Hoy'}. Ve anotando lo que respondan; se guarda con cada cambio.</p>
+    <form onsubmit="event.preventDefault(); guardarCitaHoy('${id}', this)" oninput="autoGuardarCitaHoy('${id}', this)">
+      <div id="preg-rows" class="modo-cita">${qs.map((x, i) => filaPregunta(i, x, true)).join('')}</div>
+      <div style="margin:8px 0 14px"><button type="button" class="btn ghost sm" onclick="addPregunta(true)">${I.plus.replace('<svg', '<svg style="width:16px;height:16px;vertical-align:-3px"')} Añadir pregunta</button></div>
+      ${txt('Otras cosas que nos dijeron', 'notes', a.notes, 'Lo que no encaja en ninguna pregunta')}
+      <div class="actions"><button type="button" class="btn ghost" onclick="closeSheet(); openCita('${id}')">Ficha completa</button><button type="submit" class="btn">Listo</button></div>
+    </form>`);
+}
+let AUTOSAVE = null;
+function autoGuardarCitaHoy(id, form){ clearTimeout(AUTOSAVE); AUTOSAVE = setTimeout(() => { const a = S.appointments.find(x => x.id === id); if (!a) return; const f = fd(form); a.questions = leerPreguntas(f); a.notes = f.notes || ''; persist(); }, 800); }
+function guardarCitaHoy(id, form){ clearTimeout(AUTOSAVE); const a = S.appointments.find(x => x.id === id); if (!a) return; const f = fd(form); a.questions = leerPreguntas(f); a.notes = f.notes || ''; closeSheet(); commit(); toast('Guardado'); if (citaPasada(a) && !a.resumen && (a.notes || a.questions.some(x => x.a))) setTimeout(() => openCierreCita(id), 400); }
 
 // --- Análisis ---
 function openAnalisis(id){
@@ -177,6 +245,71 @@ function openSintomas(dia){
 function delSintomas(id){ S.symptoms = S.symptoms.filter(x => x.id !== id); closeSheet(); commit(); }
 function pickScale(btn, i){ const sc = btn.parentElement; sc.querySelectorAll('button').forEach(b => b.className = ''); btn.className = 'on l' + i; sc.querySelector('input').value = i; }
 function saveSintomas(form, dia){ const f = fd(form); const t = dia || iso(today()); let s = S.symptoms.find(x => x.date === t); if (!s) { s = { id: uid(), date:t, values:{}, note:'' }; S.symptoms.push(s); } SINTOMAS.forEach(x => s.values[x.k] = Number(f[x.k]||0)); s.note = f.note; closeSheet(); commit(); toast('Registrado'); }
+
+// --- Movimientos del bebé (contar hasta 10) ---
+let KICK = { start: null, count: 0, timer: null, marks: [] };
+function openMovimientos(){
+  if (!KICK.start) { KICK = { start: Date.now(), count: 0, timer: null, marks: [] }; }
+  openSheet(`<h2>Contando movimientos</h2><p class="sub">Túmbate de lado, tranquila. Toca cada vez que lo notes: patadas, giros, golpecitos. El hipo no cuenta.</p>
+    <div class="kick-box"><div class="kick-count num" id="kick-count">${KICK.count}</div><div class="kick-sub">de 10 · <span id="kick-time">00:00</span></div>
+      <button class="kick-btn" onclick="kickTap()" aria-label="Un movimiento">${I.baby}<span>Un movimiento</span></button></div>
+    <div class="actions"><button class="btn ghost" onclick="kickCancel()">Descartar</button><button class="btn" onclick="kickFinish()">Terminar y guardar</button></div>
+    <p class="disclaimer">Si en 2 horas no llegas a 10, o notas claramente menos movimiento que otros días, contacta con tu equipo médico sin esperar. No es una alarma: es lo que recomiendan.</p>`);
+  clearInterval(KICK.timer); KICK.timer = setInterval(kickTick, 1000); kickTick();
+}
+function kickTick(){ const el = $('#kick-time'); if (!el || !KICK.start) return; const s = Math.floor((Date.now() - KICK.start) / 1000); el.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; if (s >= 7200 && KICK.count < 10 && !KICK.avisado) { KICK.avisado = true; toast('Han pasado 2 horas sin llegar a 10. Contacta con tu equipo médico.'); } }
+function kickTap(){ KICK.count++; KICK.marks.push(Date.now()); const el = $('#kick-count'); if (el) { el.textContent = KICK.count; el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); } if (navigator.vibrate) navigator.vibrate(20); if (KICK.count === 10) { toast('10 movimientos. Todo en orden: puedes guardar.'); } }
+function isoLocal(ms){ const d = new Date(ms); return iso(d) + 'T' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+function kickCancel(){ clearInterval(KICK.timer); KICK = { start: null, count: 0, timer: null, marks: [] }; closeSheet(); render(); }
+function kickFinish(){ if (!KICK.start) return; const mins = Math.max(1, Math.round((Date.now() - KICK.start) / 60000)); const k = { id: uid(), date: isoLocal(KICK.start), count: KICK.count, mins, note: '' }; clearInterval(KICK.timer); KICK = { start: null, count: 0, timer: null, marks: [] }; S.kicks = S.kicks || []; S.kicks.push(k); closeSheet(); commit(); toast(k.count >= 10 ? `${k.count} movimientos en ${mins} min` : `Guardado: ${k.count} en ${mins} min`); }
+
+// --- Contracciones (cronómetro) ---
+let CONTR = { list: [], current: null, timer: null };
+function openContracciones(){
+  openSheet(`<h2>Contracciones</h2><p class="sub">Pulsa cuando empiece una y otra vez cuando termine. Se calcula cuánto duran y cada cuánto vienen.</p>
+    <div class="kick-box"><div class="kick-count num" id="contr-time">${CONTR.current ? '…' : '—'}</div><div class="kick-sub" id="contr-sub">${CONTR.current ? 'en curso' : CONTR.list.length ? `${CONTR.list.length} registradas` : 'ninguna todavía'}</div>
+      <button class="kick-btn ${CONTR.current ? 'on' : ''}" id="contr-btn" onclick="contrToggle()">${I.wave}<span>${CONTR.current ? 'Termina' : 'Empieza una'}</span></button></div>
+    <div id="contr-list">${contrListaHtml()}</div>
+    <div class="actions"><button class="btn ghost" onclick="contrCancel()">Descartar</button><button class="btn" onclick="contrFinish()">Terminar y guardar</button></div>
+    <p class="disclaimer">Rotura de bolsa, sangrado, o contracciones regulares antes de la semana 37: llama sin esperar a que se cumpla ningún patrón.</p>`);
+  clearInterval(CONTR.timer); CONTR.timer = setInterval(contrTick, 1000); contrTick();
+}
+function contrTick(){ const el = $('#contr-time'); if (!el) return; if (CONTR.current) { const s = Math.floor((Date.now() - CONTR.current) / 1000); el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; } }
+function contrToggle(){
+  if (CONTR.current) { CONTR.list.push({ s: CONTR.current, e: Date.now() }); CONTR.current = null; }
+  else { CONTR.current = Date.now(); }
+  if (navigator.vibrate) navigator.vibrate(20);
+  const b = $('#contr-btn'); if (b) { b.classList.toggle('on', !!CONTR.current); b.querySelector('span').textContent = CONTR.current ? 'Termina' : 'Empieza una'; }
+  const t = $('#contr-time'); if (t && !CONTR.current) t.textContent = '—'; const sub = $('#contr-sub'); if (sub) sub.textContent = CONTR.current ? 'en curso' : `${CONTR.list.length} registradas`;
+  const l = $('#contr-list'); if (l) l.innerHTML = contrListaHtml();
+}
+function contrListaHtml(){
+  const st = statsContracciones(CONTR.list);
+  const rows = CONTR.list.slice(-6).reverse().map((c, i, arr) => { const prev = CONTR.list[CONTR.list.length - 1 - i - 1]; const dur = Math.round((c.e - c.s) / 1000); const cada = prev ? Math.round((c.s - prev.s) / 60000) : null; return `<div class="row"><div class="body"><h4>${new Date(c.s).toTimeString().slice(0, 5)} · ${dur} s</h4><p>${cada != null ? `${cada} min desde la anterior` : 'primera'}</p></div></div>`; }).join('');
+  return `${st.n >= 2 ? `<div class="card ${st.alerta ? 'warm' : 'soft'}" style="margin:12px 0"><span class="eyebrow">Últimas ${Math.min(6, st.n)}</span><p class="sub" style="margin-top:4px">Cada <b class="num">${st.intervalo} min</b>, de <b class="num">${st.duracion} s</b>.${st.alerta ? ' <b>Patrón 5-1-1: es momento de llamar o ir al hospital.</b>' : ''}</p></div>` : ''}${rows ? `<div class="card" style="padding:4px 18px;margin-bottom:12px">${rows}</div>` : ''}`;
+}
+function contrCancel(){ clearInterval(CONTR.timer); CONTR = { list: [], current: null, timer: null }; closeSheet(); render(); }
+function contrFinish(){ if (CONTR.current) { CONTR.list.push({ s: CONTR.current, e: Date.now() }); CONTR.current = null; } if (!CONTR.list.length) { contrCancel(); return; } const c = { id: uid(), date: isoLocal(CONTR.list[0].s), contractions: CONTR.list, note: '' }; clearInterval(CONTR.timer); CONTR = { list: [], current: null, timer: null }; S.contractions = S.contractions || []; S.contractions.push(c); closeSheet(); commit(); toast(`${c.contractions.length} contracciones guardadas`); }
+
+// --- Peso y tensión ---
+function openConstantes(id){
+  const v = (S.vitals || []).find(x => x.id === id) || { date: iso(today()), weight:'', systolic:'', diastolic:'', note:'' };
+  openSheet(`<h2>${id ? 'Registro' : 'Peso y tensión'}</h2><p class="sub">Rellena lo que tengas: solo el peso, solo la tensión o los dos.</p>
+    <form onsubmit="event.preventDefault(); saveConstantes('${id||''}', this)">
+      ${fld('Fecha', 'date', 'date', v.date, `required max="${iso(today())}"`)}
+      ${fld('Peso (kg)', 'weight', 'number', v.weight, 'step="0.1" inputmode="decimal" placeholder="62,5"')}
+      <div class="field-row">${fld('Tensión: alta (sistólica)', 'systolic', 'number', v.systolic, 'inputmode="numeric" min="60" max="250" placeholder="115"')}${fld('Baja (diastólica)', 'diastolic', 'number', v.diastolic, 'inputmode="numeric" min="30" max="150" placeholder="70"')}</div>
+      ${txt('Notas', 'note', v.note, 'Dónde se tomó, cómo te sentías…')}
+      ${actions('Guardar', id ? `delConstantes('${id}')` : null)}
+    </form>`);
+}
+function saveConstantes(id, form){ const f = fd(form); if (!f.weight && !(f.systolic && f.diastolic)) { toast('Pon el peso o la tensión completa'); return; } S.vitals = S.vitals || []; const v = getOrNew(S.vitals, id); Object.assign(v, { date: f.date, weight: f.weight ? String(Number(f.weight)) : '', systolic: f.systolic || '', diastolic: f.diastolic || '', note: f.note || '' }); closeSheet(); commit(); const n = nivelTension(v.systolic, v.diastolic); toast(n === 'grave' ? 'Tensión muy alta: contacta con tu equipo médico' : n === 'alta' ? 'Tensión alta: repítela en reposo y avisa' : 'Registrado'); }
+function delConstantes(id){ S.vitals = (S.vitals || []).filter(x => x.id !== id); closeSheet(); commit(); }
+function openHistorialConstantes(){
+  const list = [...(S.vitals || [])].sort((a, b) => b.date.localeCompare(a.date)); const ella = yo() === 'mother';
+  openSheet(`<h2>Peso y tensión</h2><p class="sub">Todos los registros.</p><div class="card" style="padding:4px 18px">${list.map(v => { const n = nivelTension(v.systolic, v.diastolic); return `<div class="row ${ella ? 'clickable' : ''}" ${ella ? `onclick="openConstantes('${v.id}')"` : ''}><div class="body"><h4>${v.weight ? v.weight.replace('.', ',') + ' kg' : ''}${v.weight && v.systolic ? ' · ' : ''}${v.systolic ? v.systolic + '/' + v.diastolic : ''}</h4><p>${cap(fmtShort(v.date))}${v.note ? ' · ' + esc(v.note) : ''}</p></div><div class="tail">${n === 'grave' ? '<span class="chip red">Muy alta</span>' : n === 'alta' ? '<span class="chip amber">Alta</span>' : ''}</div></div>`; }).join('')}</div>
+    <div class="actions" style="margin-top:14px"><button class="btn ghost" onclick="closeSheet()">Cerrar</button></div>`);
+}
 
 // --- Hitos (evolución) ---
 function openHito(id){

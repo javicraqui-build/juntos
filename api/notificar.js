@@ -24,7 +24,7 @@ async function verifyUser(token) {
   return r.ok ? r.json() : null;
 }
 function armarDoc(w) {
-  const D = { pregnancy: w.pregnancy || {}, milestones: {}, appointments: [], tests: [], ultrasounds: [], symptoms: [], memories: [], names: [], family: [], tasks: [], customMilestones: [] };
+  const D = { pregnancy: w.pregnancy || {}, milestones: {}, appointments: [], tests: [], ultrasounds: [], symptoms: [], memories: [], names: [], family: [], tasks: [], customMilestones: [], kicks: [], contractions: [], vitals: [] };
   for (const r of w.entries || []) { if (r.collection === 'milestones') D.milestones[r.id] = r.data; else if (D[r.collection]) D[r.collection].push(Object.assign({ id: r.id }, r.data)); }
   return D;
 }

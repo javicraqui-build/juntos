@@ -2,7 +2,7 @@
 const SB_URL = window.JUNTOS_CONFIG.supabaseUrl, SB_KEY = window.JUNTOS_CONFIG.supabaseKey;
 if (typeof supabase === 'undefined') { document.getElementById('app').innerHTML = '<div class="onb"><div class="grow"></div><div class="logo">juntos</div><p class="tag">No se pudo cargar la app. Revisa la conexión y vuelve a intentarlo.</p><div class="grow"></div></div>'; throw new Error('supabase-js no cargó'); }
 const sb = supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
-let SESSION = null, WS = null, AUTH_READY = false, AI_OK = null, CHAN = null;
+let SESSION = null, WS = null, AUTH_READY = false, AI_OK = null, CHAN = null, ABRIR_CITA = null;
 
 // --- render con puerta de autenticación ---
 function render(){
@@ -85,7 +85,7 @@ async function nuevaContrasena(password){
 async function logout(){ closeSheet(); await sb.auth.signOut(); SESSION = null; S = null; WS = null; CHAT = []; L.role = null; saveLocal(); try { localStorage.removeItem('juntos.ws'); } catch(e){} render(); }
 
 // --- carga del espacio: workspaces.pregnancy + una fila por ítem en entries ---
-const COLS = ['appointments','tests','ultrasounds','symptoms','memories','names','family','tasks','customMilestones'];
+const COLS = ['appointments','tests','ultrasounds','symptoms','memories','names','family','tasks','customMilestones','kicks','contractions','vitals'];
 const clone = o => JSON.parse(JSON.stringify(o));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 let BASE = null, PENDING_RENDER = false, PERSISTING = false, PERSIST_AGAIN = false;
@@ -135,6 +135,7 @@ async function adoptWorkspace(w, role){
   const rows = await cargarFilas(w.id);
   S = armarDoc(w, rows); BASE = clone(S);
   setLocal(); dbOn = true; subscribe(); render(); loadChat(); setTimeout(migrarFotos, 1500);
+  if (ABRIR_CITA && L.role) { const a = S.appointments.find(x => x.id === ABRIR_CITA); ABRIR_CITA = null; if (a) setTimeout(() => { const d = diffDays(pd(a.date), today()); if (d === 0) openCitaHoy(a.id); else if (d > 0) openPreparar(a.id); else openCita(a.id); }, 300); }
 }
 // Realtime: cada cambio llega como la fila afectada
 function subscribe(){
@@ -434,12 +435,23 @@ async function extraerPreguntas(msgs, cita){
   } catch (e) { return local(); }
 }
 
+async function cerrarCitaIA(a){
+  try {
+    const { data: { session } } = await sb.auth.getSession(); if (!session) return null;
+    const r = await fetch('/api/preguntar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + session.access_token }, body: JSON.stringify({ mode:'cierre', context: contextoIA(), cita: { title: a.title, date: a.date, doctor: a.doctor, clinic: a.clinic, notes: a.notes, questions: preguntasDe(a) } }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { if (j.message) toast(j.message); return null; }
+    return j;
+  } catch (e) { return null; }
+}
+
 // --- arranque ---
 async function boot(){
   const u = new URL(location.href); const inv = u.searchParams.get('invitar');
   if (inv) { L.pendingCode = inv.toUpperCase(); saveLocal(); history.replaceState(null, '', '/'); }
   const tab = u.searchParams.get('tab');
   if (tab) { L.tab = tab; L.sub = L.sub || {}; if (u.searchParams.get('sub')) L.sub.salud = u.searchParams.get('sub'); if (u.searchParams.get('us')) L.sub.us = u.searchParams.get('us'); saveLocal(); history.replaceState(null, '', '/'); }
+  const citaId = u.searchParams.get('cita'); if (citaId) { ABRIR_CITA = citaId; history.replaceState(null, '', '/'); }
   render();
   const { data: { session } } = await sb.auth.getSession();
   SESSION = session; AUTH_READY = true;

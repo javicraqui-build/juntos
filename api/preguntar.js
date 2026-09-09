@@ -46,6 +46,7 @@ export default async function handler(req, res) {
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
   const { context = '', history = [], question = '', urgent = null, mode = '' } = body || {};
   if (mode === 'extraer') return extraerPreguntas(res, context, history, body.cita || null);
+  if (mode === 'cierre') return cerrarCita(res, context, body.cita || null);
   if (!question.trim()) return res.status(400).json({ error: 'empty' });
   if (question.length > 2000 || context.length > 12000) return res.status(413).json({ error: 'too_large', message: 'La pregunta es demasiado larga.' });
 
@@ -119,5 +120,39 @@ Responde SOLO con JSON válido con esta forma exacta: {"preguntas":["…","…"]
     preguntas = preguntas.filter(q => typeof q === 'string' && q.trim()).map(q => q.trim()).slice(0, 8);
     return res.status(200).json({ preguntas });
   } catch (e) { console.error(e); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la conversación ahora. Inténtalo en un momento.' }); }
+}
+
+// Cierre de una cita ya pasada: resumen, y lo que se desprende (tareas, análisis pendientes, hito cubierto)
+async function cerrarCita(res, context, cita) {
+  if (!cita || !cita.title) return res.status(400).json({ error: 'cita' });
+  const sys = `Eres el asistente de "juntos", una app de embarazo para parejas. Una pareja acaba de salir de una cita médica y ha anotado lo que les dijeron. Tu tarea: convertirlo en algo útil y concreto.
+Devuelve SOLO JSON válido con esta forma exacta:
+{"resumen":"2 o 3 frases en español neutro, tuteando, con lo esencial que dijo el equipo médico y lo que significa para ellos; sin inventar nada que no esté en las notas",
+ "tareas":[{"titulo":"…","dias":14,"quien":"both"}],
+ "analisis":[{"nombre":"…","tipo":"sangre","semana":24}],
+ "hito":"eco12"}
+Reglas: solo tareas y análisis que salgan de lo que dijo el médico (pedir cita, reservar prueba, comprar, revisar). "dias" = plazo aproximado en días desde hoy; "quien" es "mother", "partner" o "both" (por defecto "both"). "tipo" de análisis: sangre, orina, genetico, glucosa, tension, cribado, eco u otro; "semana" = semana gestacional en la que toca, si se sabe, o null. "hito": la clave del hito de la evolución que esta cita cubrió (consulta1, eco1, intrauterino, latido, nipt, eco12, sexo, eco20) o null. Listas vacías si no hay nada. Máximo 5 tareas y 4 análisis. Nada de texto fuera del JSON.`;
+  const qa = (cita.questions || []).filter(x => x && x.q).map(x => `- ${x.q}${x.a ? ' → ' + x.a : ' → (sin respuesta anotada)'}`).join('\n');
+  const user = `${context}\n\nCITA: ${cita.title} el ${cita.date}${cita.doctor ? ' con ' + cita.doctor : ''}${cita.clinic ? ' en ' + cita.clinic : ''}.\nNOTAS: ${cita.notes || '(sin notas)'}\nPREGUNTAS Y RESPUESTAS:\n${qa || '(ninguna)'}\n\nGenera el JSON.`;
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', ...(process.env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': process.env.ANTHROPIC_WORKSPACE_ID } : {}) },
+      body: JSON.stringify({ model: MODEL, max_tokens: 900, temperature: 0.2, system: sys, messages: [{ role: 'user', content: user }, { role: 'assistant', content: '{"resumen":"' }] })
+    });
+    const j = await r.json();
+    if (!r.ok) { console.error('anthropic cierre', r.status, JSON.stringify(j).slice(0, 300)); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la cita ahora. Inténtalo en un momento.' }); }
+    const txt = '{"resumen":"' + (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
+    let out;
+    try { out = JSON.parse(txt.slice(0, txt.lastIndexOf('}') + 1)); } catch { return res.status(502).json({ error: 'parse', message: 'No he podido interpretar la cita. Inténtalo de nuevo.' }); }
+    const tipos = ['sangre','orina','genetico','glucosa','tension','cribado','eco','otro'];
+    const hitos = ['consulta1','eco1','intrauterino','latido','nipt','eco12','sexo','eco20'];
+    return res.status(200).json({
+      resumen: String(out.resumen || '').trim().slice(0, 600),
+      tareas: (Array.isArray(out.tareas) ? out.tareas : []).filter(t => t && t.titulo).slice(0, 5).map(t => ({ titulo: String(t.titulo).slice(0, 120), dias: Number.isFinite(Number(t.dias)) ? Math.max(0, Math.min(120, Number(t.dias))) : 14, quien: ['mother','partner','both'].includes(t.quien) ? t.quien : 'both' })),
+      analisis: (Array.isArray(out.analisis) ? out.analisis : []).filter(x => x && x.nombre).slice(0, 4).map(x => ({ nombre: String(x.nombre).slice(0, 80), tipo: tipos.includes(x.tipo) ? x.tipo : 'otro', semana: Number.isFinite(Number(x.semana)) ? Number(x.semana) : null })),
+      hito: hitos.includes(out.hito) ? out.hito : null
+    });
+  } catch (e) { console.error(e); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la cita ahora. Inténtalo en un momento.' }); }
 }
 export const config = { supportsResponseStreaming: true };

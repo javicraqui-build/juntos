@@ -68,7 +68,7 @@ function saveLocal(){ try { localStorage.setItem('juntos.local', JSON.stringify(
 
 function emptyWorkspace(){
   return { v:1, createdAt: iso(today()), pregnancy:{ lmp:null, eddOverride:null, maternalAge:null, firstPregnancy:null, type:'unico', country:'ES', names:{mother:'', partner:''}, inviteCode: code6() },
-    appointments:[], tests:[], ultrasounds:[], symptoms:[], milestones:{}, customMilestones:[], memories:[], names:[], family:[], tasks:[], chat:[], demo:false };
+    appointments:[], tests:[], ultrasounds:[], symptoms:[], milestones:{}, customMilestones:[], memories:[], names:[], family:[], tasks:[], kicks:[], contractions:[], vitals:[], chat:[], demo:false };
 }
 function code6(){ const a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = ''; for(let i=0;i<6;i++) s += a[Math.floor(Math.random()*a.length)]; return s; }
 
@@ -95,6 +95,8 @@ function contenido(w){ const k = clamp(w, 1, 42); return SEMANAS.find(x => x.w =
 function comoTxt(c){ return c.cm ? `El bebé es como ${c.cmp}.` : 'Todavía no hay embrión que medir.'; }
 // Preguntas de una cita como [{ q, a }] (acepta el formato viejo de cadenas)
 function preguntasDe(a){ return (a?.questions || []).map(x => typeof x === 'string' ? { q: x, a: '' } : { q: x?.q || '', a: x?.a || '' }).filter(x => x.q); }
+// Tensión arterial: nivel según umbrales habituales en el embarazo
+function nivelTension(sis, dia){ sis = Number(sis) || 0; dia = Number(dia) || 0; if (!sis && !dia) return null; if (sis >= 160 || dia >= 110) return 'grave'; if (sis >= 140 || dia >= 90) return 'alta'; if (sis < 90 || dia < 60) return 'baja'; return 'normal'; }
 function citaPasada(a){ if (!a?.date) return false; const [d, t] = a.date.split('T'); const x = pd(d); if (t) { const [hh, mm] = t.split(':').map(Number); x.setHours(hh || 0, mm || 0, 0, 0); } else x.setHours(23, 59, 0, 0); return x <= new Date(); }
 function hitoFecha(h){ return addDays(preg().lmpEff, h.w*7 + (h.d||0)); }
 
@@ -148,7 +150,9 @@ function paraHoy(){
   if (P.nacido) return out;
   const ahora = new Date();
   const citas = S.appointments.filter(a => !citaPasada(a)).map(a => ({ a, n: diffDays(pd(a.date), t) })).filter(x => x.n <= 1).sort((x, y) => x.a.date.localeCompare(y.a.date));
-  for (const { a, n } of citas) { const nq = preguntasDe(a).length; out.push({ ic:I.calendar, txt:`${n === 0 ? 'Hoy' : 'Mañana'}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}: ${a.title}`, sub: nq ? `${nq} ${nq === 1 ? 'pregunta anotada' : 'preguntas anotadas'}` : 'Sin preguntas anotadas todavía', fn:`openCita('${a.id}')` }); }
+  for (const { a, n } of citas) { const nq = preguntasDe(a).length; out.push({ ic:I.calendar, txt:`${n === 0 ? 'Hoy' : 'Mañana'}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}: ${a.title}`, sub: n === 0 ? (nq ? `${nq} ${nq === 1 ? 'pregunta' : 'preguntas'} · toca para anotar las respuestas` : 'Toca para anotar lo que digan') : (nq ? `${nq} ${nq === 1 ? 'pregunta anotada' : 'preguntas anotadas'} · toca para preparar la cita` : 'Sin preguntas todavía · toca para preparar la cita'), fn: n === 0 ? `openCitaHoy('${a.id}')` : `openPreparar('${a.id}')` }); }
+  const ultimaTA = [...(S.vitals || [])].filter(v => v.systolic).sort((x, y) => y.date.localeCompare(x.date))[0];
+  if (ultimaTA && ['alta','grave'].includes(nivelTension(ultimaTA.systolic, ultimaTA.diastolic)) && diffDays(t, pd(ultimaTA.date)) <= 1) out.push({ ic:I.alert, txt:`Tensión ${ultimaTA.systolic}/${ultimaTA.diastolic} ${diffDays(t, pd(ultimaTA.date)) === 0 ? 'hoy' : 'ayer'}`, sub: nivelTension(ultimaTA.systolic, ultimaTA.diastolic) === 'grave' ? 'Contacta con el equipo médico ahora' : 'Conviene repetirla y avisar al equipo médico', fn:`go('salud'); subSalud('sintomas')` });
   const mias = S.tasks.filter(x => x.status !== 'hecha' && x.due && (x.owner === me || x.owner === 'both') && diffDays(pd(x.due), t) <= 0).sort((a, b) => a.due.localeCompare(b.due));
   for (const x of mias.slice(0, 2)) { const atras = -diffDays(pd(x.due), t); out.push({ ic:I.list, txt:`${atras ? 'Atrasada' : 'Para hoy'}: ${x.title}`, sub: atras ? `Vencía hace ${atras} ${atras === 1 ? 'día' : 'días'}` : (x.owner === 'both' ? 'De los dos' : 'A tu cargo'), fn:`openTarea('${x.id}')` }); }
   if (me === 'partner') {
@@ -160,6 +164,8 @@ function paraHoy(){
   } else if (me === 'mother' && P.w >= 5 && !S.symptoms.some(s => s.date === iso(t)) && ahora.getHours() >= 12) {
     out.push({ ic:I.mood, txt:'¿Cómo te sientes hoy?', sub:'Un minuto. Sirve para la próxima cita', fn:`openSintomas()` });
   }
+  const sinCerrar = S.appointments.filter(a => citaPasada(a) && !a.resumen && (a.notes || preguntasDe(a).some(x => x.a)) && diffDays(t, pd(a.date)) <= 7).sort((x, y) => y.date.localeCompare(x.date))[0];
+  if (sinCerrar) out.push({ ic:I.spark, txt:`Cerrar la cita: ${sinCerrar.title}`, sub:'Resumen, tareas y análisis que se desprenden', fn:`openCierreCita('${sinCerrar.id}')` });
   const hito = timeline().find(h => !h.done && !h.custom && !h.citaId && !h.emocional && h.date > t && diffDays(h.date, t) <= 10);
   if (hito && !citas.length) out.push({ ic:I.timeline, txt:`En ${diffDays(hito.date, t)} días toca: ${hito.title}`, sub:'Si ya tienen fecha, créala como cita', fn:`openHito('${hito.id}')` });
   return out.slice(0, 4);
@@ -222,6 +228,8 @@ function demoWorkspace(){
     { id:uid(), title:'Revisar la licencia parental de cada uno', owner:'partner', due: iso(addDays(t, 14)), status:'pendiente', notes:'' },
     { id:uid(), title:'Preparar las preguntas para la eco de la semana 12', owner:'both', due: iso(addDays(t, 12)), status:'pendiente', notes:'' }
   ];
+  W.kicks = []; W.contractions = [];
+  W.vitals = [ { id:uid(), date: at(7,3), weight:'61.2', systolic:'112', diastolic:'68', note:'' }, { id:uid(), date: iso(addDays(t, -2)), weight:'62.0', systolic:'115', diastolic:'70', note:'' } ];
   W.chat = [];
   return W;
 }
