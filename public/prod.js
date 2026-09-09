@@ -22,7 +22,13 @@ function render(){
 }
 
 // --- acceso con correo y contraseña ---
-let AUTH_MODE = 'login', AUTH_MSG = '', AUTH_BUSY = false, RECOVERY = false;
+let AUTH_MODE = 'login', AUTH_MSG = '', AUTH_BUSY = false, RECOVERY = false, INVITE_PREVIEW = undefined;
+async function cargarInvitacion(){
+  INVITE_PREVIEW = 'cargando';
+  try { const { data, error } = await sb.rpc('invite_preview', { p_code: L.pendingCode }); INVITE_PREVIEW = error ? 'error' : (data || null); if (data && !SESSION) AUTH_MODE = 'signup'; }
+  catch (e) { INVITE_PREVIEW = 'error'; }
+  if (!SESSION) render();
+}
 function renderLogin(){
   if (RECOVERY) return `<div class="onb"><div class="grow"></div><div class="logo">juntos</div><p class="tag">Elige una contraseña nueva</p>
     <form style="margin-top:22px" onsubmit="event.preventDefault(); nuevaContrasena(this.password.value)">
@@ -31,20 +37,38 @@ function renderLogin(){
       <button class="btn block" type="submit" ${AUTH_BUSY?'disabled':''}>Guardar y entrar</button>
     </form><div class="grow"></div></div>`;
   const signup = AUTH_MODE === 'signup';
-  const code = L.pendingCode ? `<div class="card accent" style="margin-bottom:16px"><span class="eyebrow">Invitación</span><p class="sub" style="margin-top:4px">Tienes un código para unirte al espacio de tu pareja: <b>${esc(L.pendingCode)}</b>. Crea tu cuenta o entra y te unimos.</p></div>` : '';
+  let code = '';
+  if (L.pendingCode) {
+    const v = INVITE_PREVIEW;
+    if (v === undefined) cargarInvitacion();
+    if (v && typeof v === 'object') {
+      const edd = v.edd ? pd(v.edd) : v.lmp ? addDays(pd(v.lmp), 280) : null; const days = edd ? diffDays(today(), addDays(edd, -280)) : null;
+      const quien = v.mother || v.partner || 'Tu pareja';
+      code = `<div class="card accent" style="margin-bottom:16px;text-align:left"><span class="eyebrow">Invitación</span><h3 style="margin-top:4px">${esc(quien)} te invita a llevar el embarazo juntos</h3>
+        <p class="sub" style="margin-top:6px">${days != null && days >= 0 ? `Están en la ${semanaTxt(days).toLowerCase()}${edd ? `, con fecha probable de parto el ${fmtLong(edd)}` : ''}.` : 'El espacio ya está creado.'} Aquí verán lo mismo los dos: citas con las preguntas para el médico, resultados, la evolución semana a semana, recuerdos y tareas repartidas. Y un asistente que conoce su embarazo.</p>
+        ${v.members >= 2 ? '<p class="sub" style="color:var(--red);margin-top:8px">Este espacio ya tiene dos personas. Si es un error, que tu pareja salga del espacio desde su perfil.</p>' : '<p class="sub" style="margin-top:8px">Crea tu cuenta con tu correo y entras directamente; no hace falta copiar el código.</p>'}</div>`;
+    } else if (v === null) code = `<div class="card accent" style="margin-bottom:16px"><span class="eyebrow">Invitación</span><p class="sub" style="margin-top:4px">No encontramos un espacio con el código <b>${esc(L.pendingCode)}</b>. Pide a tu pareja que lo revise. <button class="link" onclick="L.pendingCode=null; INVITE_PREVIEW=undefined; saveLocal(); render()">Ignorar</button></p></div>`;
+    else code = `<div class="card accent" style="margin-bottom:16px"><span class="eyebrow">Invitación</span><p class="sub" style="margin-top:4px">Tienes un código para unirte al espacio de tu pareja: <b>${esc(L.pendingCode)}</b>. Crea tu cuenta o entra y te unimos.</p></div>`;
+  }
   return `<div class="onb"><div class="grow"></div><div class="logo">juntos</div><p class="tag">El embarazo, juntos.</p>
-    <div class="welcome-art"><i style="width:120px;height:120px;background:var(--warm);left:-20px;top:40px;opacity:.85"></i><i style="width:70px;height:70px;background:var(--accent-soft);right:60px;top:30px;opacity:.9"></i><i style="width:36px;height:36px;background:#F2DCCB;right:110px;bottom:34px"></i></div>
+    ${L.pendingCode ? '' : `<div class="welcome-art"><i style="width:120px;height:120px;background:var(--warm);left:-20px;top:40px;opacity:.85"></i><i style="width:70px;height:70px;background:var(--accent-soft);right:60px;top:30px;opacity:.9"></i><i style="width:36px;height:36px;background:#F2DCCB;right:110px;bottom:34px"></i></div>`}
     ${code}
-    <div class="seg"><button class="${!signup?'on':''}" onclick="AUTH_MODE='login'; AUTH_MSG=''; render()">Entrar</button><button class="${signup?'on':''}" onclick="AUTH_MODE='signup'; AUTH_MSG=''; render()">Crear cuenta</button></div>
+    ${AUTH_MODE === 'recover' ? `<h3 style="margin-bottom:6px">Recuperar la contraseña</h3><p class="sub" style="margin-bottom:12px">Te enviamos un enlace al correo para elegir una nueva.</p>
+    <form onsubmit="event.preventDefault(); recuperar(this.email.value)">
+      <div class="field"><label>Correo</label><input name="email" type="email" inputmode="email" autocomplete="email" required placeholder="tu@correo.com"></div>
+      ${AUTH_MSG ? `<p class="sub" style="color:${/enviado/.test(AUTH_MSG) ? 'var(--sage)' : 'var(--red)'};margin-bottom:12px">${esc(AUTH_MSG)}</p>` : ''}
+      <button class="btn block" type="submit" ${AUTH_BUSY?'disabled':''}>${AUTH_BUSY ? 'Un momento…' : 'Enviar enlace'}</button>
+    </form><div style="margin-top:14px;text-align:center"><button class="link" style="color:var(--ink3)" onclick="AUTH_MODE='login'; AUTH_MSG=''; render()">Volver</button></div><div class="grow"></div></div>` : ''}
+    ${AUTH_MODE === 'recover' ? '' : `<div class="seg"><button class="${!signup?'on':''}" onclick="AUTH_MODE='login'; AUTH_MSG=''; render()">Entrar</button><button class="${signup?'on':''}" onclick="AUTH_MODE='signup'; AUTH_MSG=''; render()">Crear cuenta</button></div>
     <form onsubmit="event.preventDefault(); acceder(this.email.value, this.password.value)">
       <div class="field"><label>Correo</label><input name="email" type="email" inputmode="email" autocomplete="email" required placeholder="tu@correo.com"></div>
       <div class="field"><label>Contraseña</label><input name="password" type="password" autocomplete="${signup?'new-password':'current-password'}" minlength="8" required placeholder="${signup?'Mínimo 8 caracteres':'Tu contraseña'}"></div>
       ${AUTH_MSG ? `<p class="sub" style="color:var(--red);margin-bottom:12px">${esc(AUTH_MSG)}</p>` : ''}
       <button class="btn block" type="submit" ${AUTH_BUSY?'disabled':''}>${AUTH_BUSY ? 'Un momento…' : signup ? 'Crear cuenta' : 'Entrar'}</button>
     </form>
-    ${signup ? '' : `<div style="margin-top:14px;text-align:center"><button class="link" style="color:var(--ink3)" onclick="recuperar()">¿Olvidaste la contraseña?</button></div>`}
+    ${signup ? '' : `<div style="margin-top:14px;text-align:center"><button class="link" style="color:var(--ink3)" onclick="AUTH_MODE='recover'; AUTH_MSG=''; render()">¿Olvidaste la contraseña?</button></div>`}
     <p class="disclaimer">Tus datos solo los ven las dos personas del espacio. Sin publicidad ni terceros.</p>
-    <div class="grow"></div></div>`;
+    <div class="grow"></div></div>`}`;
 }
 function errorAuth(e){
   const m = (e?.message || '').toLowerCase();
@@ -70,10 +94,11 @@ async function acceder(email, password){
   } catch (e) { AUTH_MSG = errorAuth(e); }
   AUTH_BUSY = false; if (!SESSION) render();
 }
-async function recuperar(){
-  const email = prompt('Escribe tu correo y te enviamos un enlace para cambiar la contraseña:'); if (!email) return;
-  const { error } = await sb.auth.resetPasswordForEmail(email.trim(), { redirectTo: location.origin + '/' });
-  AUTH_MSG = error ? errorAuth(error) : 'Te hemos enviado un enlace para cambiar la contraseña.'; render();
+async function recuperar(email){
+  email = (email || '').trim(); if (!email) return;
+  AUTH_BUSY = true; AUTH_MSG = ''; render();
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + '/' });
+  AUTH_BUSY = false; AUTH_MSG = error ? errorAuth(error) : 'Enlace enviado. Revisa tu correo (y la carpeta de spam).'; render();
 }
 async function nuevaContrasena(password){
   AUTH_BUSY = true; render();
@@ -444,6 +469,17 @@ async function cerrarCitaIA(a){
     return j;
   } catch (e) { return null; }
 }
+
+// --- errores: se registran en app_errors (máximo 5 por sesión, sin datos personales) ---
+let ERRS = 0, ULT_ERR = '';
+async function registrarErrorWeb(mensaje, detalle){
+  try {
+    if (ERRS >= 5 || !SESSION || mensaje === ULT_ERR) return; ERRS++; ULT_ERR = mensaje;
+    await sb.from('app_errors').insert({ origen:'web', mensaje: String(mensaje).slice(0, 500), detalle: String(detalle || '').slice(0, 4000), url: (L.tab || 'hoy') + (L.sub?.salud ? '/' + L.sub.salud : ''), ua: navigator.userAgent.slice(0, 200), user_id: SESSION.user.id, version: window.JUNTOS_VERSION || null });
+  } catch (e) {}
+}
+window.addEventListener('error', e => { if (e.message && !/ResizeObserver|Script error/.test(e.message)) registrarErrorWeb(e.message, `${e.filename}:${e.lineno}:${e.colno}\n${e.error?.stack || ''}`); });
+window.addEventListener('unhandledrejection', e => { const r = e.reason; const m = r?.message || String(r); if (!/AbortError|NetworkError|Failed to fetch|Load failed/.test(m)) registrarErrorWeb(m, r?.stack || ''); });
 
 // --- arranque ---
 async function boot(){

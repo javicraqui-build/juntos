@@ -60,7 +60,7 @@ html = f"""<!doctype html>
 </head>
 <body>
 <div id="app"></div>
-<script>window.JUNTOS_CONFIG = {json.dumps(cfg)};</script>
+<script>window.JUNTOS_CONFIG = {json.dumps(cfg)}; window.JUNTOS_VERSION = '{version}';</script>
 <script src="/vendor/supabase-2.116.0.js"></script>
 <script src="/content.js"></script>
 <script src="/app.js"></script>
@@ -81,3 +81,7 @@ open(f'{P}/public/sw.js', 'w').write(open(f'{P}/src/sw.js').read().replace('__VE
 os.makedirs(f'{P}/lib', exist_ok=True)
 open(f'{P}/lib/contenido.mjs', 'w').write('// Generado por build-prod.py desde content.js. No editar a mano.\n' + content + '\nexport { SEMANAS, HITOS_BASE, PAISES, SINTOMAS, ESCALA };\n')
 print('ok', len(html))
+import subprocess, sys
+r = subprocess.run(['node', f'{P}/tests/run.mjs'], capture_output=True, text=True)
+print(r.stdout.strip().splitlines()[-1] if r.stdout.strip() else '')
+if r.returncode != 0: print(r.stdout); raise SystemExit('TESTS FALLIDOS')

@@ -58,6 +58,7 @@ function renderHoy(){
   <section class="section"><div class="card">
     <div class="size"><div class="orb"><img src="/img/tamano/${c.img}.svg" alt="${esc(c.cmp)}" width="96" height="96"></div>
     ${c.cm ? `<div class="txt"><span class="eyebrow">${porPeso ? 'Peso aproximado' : 'Tamaño aproximado'}</span><h3>${sizeLead}</h3><p>${sizeDetail}</p></div>` : `<div class="txt"><span class="eyebrow">Tamaño</span><h3>Todavía no hay embrión</h3><p>La cuenta empieza en la última regla; la fecundación ocurre hacia la semana 3.</p></div>`}</div>
+    ${c.cm ? `<div style="margin-top:10px;text-align:right"><button class="link" style="font-size:13px" onclick="compartirSemana()">Compartir esta semana</button></div>` : ''}
   </div></section>
 
   <section class="section"><div class="section-head"><h2>Esta semana</h2><button class="link" onclick="go('evolucion')">Ver evolución</button></div>
@@ -105,6 +106,32 @@ function renderHoyNacido(P){
     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn soft sm" onclick="openRecuerdo(null, 'El día que nació', '${iso(P.nacDate)}')">Guardar el recuerdo</button><button class="btn ghost sm" onclick="openHito('nacimiento')">Editar el nacimiento</button></div></div>
   </section>
   ${disclaimer()}`;
+}
+
+// Tarjeta de la semana como imagen (para WhatsApp, la familia…)
+async function compartirSemana(){
+  const P = preg(), c = contenido(P.w);
+  const W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, H); grad.addColorStop(0, '#5E4468'); grad.addColorStop(1, '#3E2C48'); g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  g.fillStyle = 'rgba(255,255,255,.06)'; g.beginPath(); g.arc(W * .82, H * .12, 260, 0, Math.PI * 2); g.fill(); g.beginPath(); g.arc(W * .15, H * .9, 200, 0, Math.PI * 2); g.fill();
+  const serif = '"Fraunces", Georgia, serif', sans = '"Figtree", system-ui, sans-serif';
+  g.textAlign = 'center'; g.fillStyle = '#E9DDEA'; g.font = `600 34px ${sans}`; g.letterSpacing = '6px'; g.fillText(cap(fmtLong(today())).toUpperCase(), W / 2, 120); g.letterSpacing = '0px';
+  g.fillStyle = '#fff'; g.font = `500 190px ${serif}`; g.fillText(`${P.w}`, W / 2, 330);
+  g.font = `400 44px ${sans}`; g.fillStyle = '#E9DDEA'; g.fillText(P.d ? `semanas + ${P.d} ${P.d === 1 ? 'día' : 'días'}` : 'semanas justas', W / 2, 395);
+  // ilustración en un círculo
+  g.fillStyle = '#F5F1EB'; g.beginPath(); g.arc(W / 2, 700, 230, 0, Math.PI * 2); g.fill();
+  try { const img = new Image(); img.src = `/img/tamano/${c.img}.svg`; await new Promise((res, rej) => { img.onload = res; img.onerror = rej; }); g.drawImage(img, W / 2 - 190, 700 - 190, 380, 380); } catch (e) {}
+  g.fillStyle = '#fff'; g.font = `500 60px ${serif}`; g.fillText(c.by === 'peso' ? `Pesa como ${c.cmp}` : `Como ${c.cmp}`, W / 2, 1030);
+  const sizeTxt = c.cm < 0.1 ? 'menos de 1 mm' : c.cm < 1 ? `${(c.cm * 10).toFixed(0)} mm` : `${String(c.cm).replace('.', ',')} cm`;
+  const peso = c.g ? (c.g >= 1000 ? `${(c.g / 1000).toFixed(1).replace('.', ',')} kg` : `${c.g} g`) : '';
+  g.font = `400 38px ${sans}`; g.fillStyle = '#E9DDEA'; g.fillText([`unos ${sizeTxt}`, peso ? `alrededor de ${peso}` : ''].filter(Boolean).join(' · '), W / 2, 1095);
+  g.font = `400 34px ${sans}`; g.fillStyle = '#C6876A'; g.fillText(`Fecha probable de parto: ${fmtLong(P.edd)}`, W / 2, 1200);
+  g.font = `500 30px ${serif}`; g.fillStyle = 'rgba(255,255,255,.55)'; g.fillText('juntos', W / 2, 1290);
+  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  const file = new File([blob], `semana-${P.w}.png`, { type: 'image/png' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: `Semana ${P.w}` }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
+  const url = URL.createObjectURL(blob);
+  openSheet(`<h2>Semana ${P.w}</h2><p class="sub">Mantén pulsada la imagen para guardarla o compartirla.</p><img src="${url}" alt="Semana ${P.w}" style="border-radius:16px;width:100%"><div class="actions" style="margin-top:14px"><a class="btn ghost" href="${url}" download="semana-${P.w}.png">Descargar</a><button class="btn" onclick="closeSheet()">Cerrar</button></div>`);
 }
 
 // ====== EVOLUCIÓN ======

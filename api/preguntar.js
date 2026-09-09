@@ -3,6 +3,7 @@
 // ANTHROPIC_WORKSPACE_ID (solo si la clave no está asociada a un workspace en la consola de Anthropic).
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://eidspdbyvbyjntkxiavz.supabase.co';
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || 'sb_publishable_DTQwi_Yr3RK3oZa1qT_tVQ_Wd7VmZ66';
+import { registrarError } from '../lib/errores.mjs';
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
 const LIMITE_DIARIO = Number(process.env.AI_DAILY_LIMIT || 40);
 
@@ -81,7 +82,7 @@ export default async function handler(req, res) {
     }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
-      console.error('anthropic', r.status, JSON.stringify(j).slice(0, 500));
+      console.error('anthropic', r.status, JSON.stringify(j).slice(0, 500)); registrarError('api/preguntar', `anthropic ${r.status}: ${(j?.error?.message || '').slice(0, 200)}`, { user_id: user.id });
       const detail = j?.error?.message || '';
       const msg = r.status === 429 ? 'Demasiadas preguntas seguidas. Espera un momento y vuelve a intentarlo.'
         : r.status === 404 ? 'El modelo configurado no existe. Revisa ANTHROPIC_MODEL en Vercel.'
@@ -93,7 +94,7 @@ export default async function handler(req, res) {
     const text = (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('').trim();
     return res.status(200).json({ text, model: MODEL });
   } catch (e) {
-    console.error(e);
+    console.error(e); registrarError('api/preguntar', e, { user_id: user.id });
     if (res.headersSent) return res.end();
     return res.status(502).json({ error: 'upstream', message: 'No he podido responder ahora. Inténtalo de nuevo en un momento.' });
   }
@@ -113,13 +114,13 @@ Responde SOLO con JSON válido con esta forma exacta: {"preguntas":["…","…"]
       body: JSON.stringify({ model: MODEL, max_tokens: 600, temperature: 0.2, system: sys, messages: [{ role: 'user', content: user }, { role: 'assistant', content: '{"preguntas":[' }] })
     });
     const j = await r.json();
-    if (!r.ok) { console.error('anthropic extraer', r.status, JSON.stringify(j).slice(0, 300)); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la conversación ahora. Inténtalo en un momento.' }); }
+    if (!r.ok) { console.error('anthropic extraer', r.status, JSON.stringify(j).slice(0, 300)); registrarError('api/preguntar', `extraer ${r.status}`); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la conversación ahora. Inténtalo en un momento.' }); }
     const txt = '{"preguntas":[' + (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
     let preguntas = [];
     try { preguntas = JSON.parse(txt.slice(0, txt.lastIndexOf('}') + 1)).preguntas || []; } catch { preguntas = [...txt.matchAll(/"([^"\n]{8,200}\?)"/g)].map(m => m[1]); }
     preguntas = preguntas.filter(q => typeof q === 'string' && q.trim()).map(q => q.trim()).slice(0, 8);
     return res.status(200).json({ preguntas });
-  } catch (e) { console.error(e); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la conversación ahora. Inténtalo en un momento.' }); }
+  } catch (e) { console.error(e); registrarError('api/preguntar', e); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la conversación ahora. Inténtalo en un momento.' }); }
 }
 
 // Cierre de una cita ya pasada: resumen, y lo que se desprende (tareas, análisis pendientes, hito cubierto)
@@ -141,7 +142,7 @@ Reglas: solo tareas y análisis que salgan de lo que dijo el médico (pedir cita
       body: JSON.stringify({ model: MODEL, max_tokens: 900, temperature: 0.2, system: sys, messages: [{ role: 'user', content: user }, { role: 'assistant', content: '{"resumen":"' }] })
     });
     const j = await r.json();
-    if (!r.ok) { console.error('anthropic cierre', r.status, JSON.stringify(j).slice(0, 300)); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la cita ahora. Inténtalo en un momento.' }); }
+    if (!r.ok) { console.error('anthropic cierre', r.status, JSON.stringify(j).slice(0, 300)); registrarError('api/preguntar', `cierre ${r.status}`); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la cita ahora. Inténtalo en un momento.' }); }
     const txt = '{"resumen":"' + (j.content || []).filter(c => c.type === 'text').map(c => c.text).join('');
     let out;
     try { out = JSON.parse(txt.slice(0, txt.lastIndexOf('}') + 1)); } catch { return res.status(502).json({ error: 'parse', message: 'No he podido interpretar la cita. Inténtalo de nuevo.' }); }
@@ -153,6 +154,6 @@ Reglas: solo tareas y análisis que salgan de lo que dijo el médico (pedir cita
       analisis: (Array.isArray(out.analisis) ? out.analisis : []).filter(x => x && x.nombre).slice(0, 4).map(x => ({ nombre: String(x.nombre).slice(0, 80), tipo: tipos.includes(x.tipo) ? x.tipo : 'otro', semana: Number.isFinite(Number(x.semana)) ? Number(x.semana) : null })),
       hito: hitos.includes(out.hito) ? out.hito : null
     });
-  } catch (e) { console.error(e); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la cita ahora. Inténtalo en un momento.' }); }
+  } catch (e) { console.error(e); registrarError('api/preguntar', e); return res.status(502).json({ error: 'upstream', message: 'No he podido leer la cita ahora. Inténtalo en un momento.' }); }
 }
 export const config = { supportsResponseStreaming: true };

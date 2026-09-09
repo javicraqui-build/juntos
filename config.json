@@ -1,5 +1,6 @@
 {
   "supabaseUrl": "https://eidspdbyvbyjntkxiavz.supabase.co",
   "supabaseKey": "sb_publishable_DTQwi_Yr3RK3oZa1qT_tVQ_Wd7VmZ66",
-  "vapidPublicKey": "BAwXib9BogTrOQzXTInw8s3XWtmtb-0XwivhbMCWpw9BowE6-9wPp4QvqEz6Pme-Cy6UuD79AxhDbRYIfmFe2WE"
+  "vapidPublicKey": "BAwXib9BogTrOQzXTInw8s3XWtmtb-0XwivhbMCWpw9BowE6-9wPp4QvqEz6Pme-Cy6UuD79AxhDbRYIfmFe2WE",
+  "adminEmail": "jsanchezprandi@gmail.com"
 }

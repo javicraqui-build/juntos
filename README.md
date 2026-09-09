@@ -38,6 +38,12 @@ Si editas la app, edita esas fuentes y vuelve a generar; o edita `public/` direc
 4. **GitHub**: crea el repo, sube esta carpeta y en Vercel → Settings → Git conecta el repo al proyecto `juntos`
    (o crea el proyecto desde el repo). Con el repo conectado, cada push a `main` despliega.
 
+## Tests y errores
+
+`node tests/run.mjs` prueba la lógica pura (cálculo gestacional, línea de tiempo, citas, avisos, contracciones, tensión, parseo de la IA). Corre en `build-prod.py` y en el build de Vercel (`fetch.mjs`): si falla, no se despliega.
+
+Los errores del front (`window.onerror`, promesas rechazadas) y de las funciones se registran en la tabla `app_errors`; el cron de avisos manda un push diario al correo de `adminEmail` (config.json) si hubo errores en las últimas 24 h. Consulta: `select * from app_errors order by at desc`.
+
 ## Avisos push
 
 `api/notificar.js` corre dos veces al día por cron de Vercel (06:00 y 11:00 UTC; cada espacio recibe en la franja de su mañana) y manda a cada persona sus avisos (cita de mañana/hoy, semana nueva, tarea a su cargo, mal día de ella para la pareja, hito en una semana). Variables en Vercel: `SUPABASE_SERVICE_ROLE_KEY`, `VAPID_PRIVATE_KEY` (la pública está en `config.json`), `CRON_SECRET`. `GET /api/notificar?force=1` con el secreto ignora la franja horaria (para probar). `POST` con el JWT del usuario manda un aviso de prueba.
