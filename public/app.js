@@ -19,6 +19,8 @@ function semanaTxt(days){ const w = Math.floor(days/7), d = days % 7; return d ?
 function semanaCorta(days){ const w = Math.floor(days/7), d = days % 7; return `${w}+${d}`; }
 function gaOf(dateIso){ const P = preg(); return diffDays(pd(dateIso), P.lmpEff); }
 function relDias(n){ if(n === 0) return 'Hoy'; if(n === 1) return 'Mañana'; if(n === -1) return 'Ayer'; if(n > 1) return `Faltan ${n} días`; return `Hace ${-n} días`; }
+function fotoSrc(v){ return v || ''; }  // en prod se resuelve contra Storage
+function quitarFoto(v){}                 // en prod borra el archivo de Storage
 function toast(msg){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2200); }
 
 // ====== ICONOS ======
@@ -83,9 +85,11 @@ function preg(){
   const w = Math.floor(days/7), d = days % 7;
   const remaining = diffDays(edd, today());
   const trimester = w < 14 ? 1 : w < 28 ? 2 : 3;
-  return { edd, lmpEff, days, w, d, remaining, trimester, pct: clamp(days/280, 0, 1) };
+  const nac = S.milestones?.nacimiento; const nacido = !!(nac && nac.done); const nacDate = nacido ? (pd(nac.date) || edd) : null;
+  return { edd, lmpEff, days, w, d, remaining, trimester, pct: clamp(days/280, 0, 1), nacido, nacDate, diasVida: nacido ? diffDays(today(), nacDate) : null };
 }
-function contenido(w){ const k = clamp(w, 4, 42); return SEMANAS.find(x => x.w === k); }
+function contenido(w){ const k = clamp(w, 1, 42); return SEMANAS.find(x => x.w === k); }
+function comoTxt(c){ return c.cm ? `El bebé es como ${c.cmp}.` : 'Todavía no hay embrión que medir.'; }
 function hitoFecha(h){ return addDays(preg().lmpEff, h.w*7 + (h.d||0)); }
 
 // Línea de tiempo: hitos base + personalizados, con estado
@@ -119,8 +123,9 @@ function proximoHito(){
 function notificaciones(){
   const P = preg(), t = today(), out = [];
   const c = contenido(P.w);
+  if (P.nacido) { out.push({ ic:I.heart, txt:`${P.diasVida === 0 ? 'Hoy nació' : `Hace ${P.diasVida} ${P.diasVida === 1 ? 'día' : 'días'} que nació`} ❤️`, sub:'Ya está aquí' }); return out; }
   if (P.d === 0) out.push({ ic:I.heart, txt:`Hoy empieza la semana ${P.w} ❤️`, sub:'Un capítulo nuevo' });
-  else out.push({ ic:I.heart, txt:`${semanaTxt(P.days)}. El bebé es como ${c.cmp}.`, sub:'Hoy' });
+  else out.push({ ic:I.heart, txt:`${semanaTxt(P.days)}. ${comoTxt(c)}`, sub:'Hoy' });
   if ((P.w === 14 || P.w === 28) && P.d < 7) out.push({ ic:I.spark, txt:`Nuevo hito: ya están en el ${P.w===14?'segundo':'tercer'} trimestre.`, sub:'Esta semana' });
   const nx = proximoHito();
   if (nx) { const n = diffDays(nx.date, t); out.push({ ic:I.calendar, txt: n === 0 ? `Hoy: ${nx.title}.` : n === 1 ? `Mañana ${nx.kind==='cita'?'tienen cita: ':''}${nx.title}.` : `Faltan ${n} días para ${nx.title}.`, sub: cap(fmtLong(nx.date)) }); }
@@ -244,11 +249,12 @@ function emptyState(icon, title, text, cta){ return `<div class="empty"><div cla
 // ====== HOY ======
 function renderHoy(){
   const P = preg(), c = contenido(P.w), nx = proximoHito();
-  const sizeTxt = c.cm < 1 ? `${(c.cm*10).toFixed(0)} mm` : `${String(c.cm).replace('.',',')} cm`;
+  if (P.nacido) return renderHoyNacido(P);
+  const sizeTxt = !c.cm ? '' : c.cm < 0.1 ? 'menos de 1 mm' : c.cm < 1 ? `${(c.cm*10).toFixed(0)} mm` : `${String(c.cm).replace('.',',')} cm`;
   const peso = c.g ? (c.g >= 1000 ? `${(c.g/1000).toFixed(1).replace('.',',')} kg` : `${c.g} g`) : null;
   const porPeso = c.by === 'peso';
   const sizeLead = porPeso ? `Pesa como ${esc(c.cmp)}` : `Como ${esc(c.cmp)}`;
-  const sizeDetail = porPeso ? `Alrededor de ${peso}${c.cm ? `, y mide unos ${sizeTxt} de la cabeza a los pies` : ''}.` : `Mide unos ${sizeTxt}${peso ? ` y pesa alrededor de ${peso}` : ''}.`;
+  const sizeDetail = porPeso ? `Alrededor de ${peso}${c.cm ? `, y mide unos ${sizeTxt} de la cabeza a los pies` : ''}.` : c.cm < 0.1 ? 'Mide menos de un milímetro.' : `Mide unos ${sizeTxt}${peso ? ` y pesa alrededor de ${peso}` : ''}.`;
   const me = yo();
   const ella = `<div class="card accent"><span class="eyebrow">Para ${me==='mother' ? 'ti' : esc(quien('mother'))}</span><h3>${me==='mother' ? 'Cómo puedes sentirte esta semana' : 'Lo que ella lee esta semana'}</h3><p class="sub">${esc(c.ella)}</p></div>`;
   const pareja = `<div class="card warm"><span class="eyebrow">Para ${me==='partner' ? 'ti' : esc(quien('partner'))}</span><h3>${me==='partner' ? 'Cómo acompañarla esta semana' : 'Lo que le proponemos esta semana'}</h3><p class="sub">${esc(c.pareja)}</p></div>`;
@@ -263,14 +269,15 @@ function renderHoy(){
     <div class="trim"><span>Test</span><span>Semana 14</span><span>Semana 28</span><span>Parto</span></div>
     <div class="meta">
       <div><strong class="num">${esc(fmtShort(P.edd))}</strong>Fecha probable de parto</div>
-      <div><strong class="num">${dias}</strong>${dias===1?'día restante':'días restantes'}</div>
+      ${P.remaining >= 0 ? `<div><strong class="num">${dias}</strong>${dias===1?'día restante':'días restantes'}</div>` : `<div><strong class="num">+${-P.remaining}</strong>${-P.remaining===1?'día desde la FPP':'días desde la FPP'}</div>`}
       <div><strong class="num">${P.trimester}.º</strong>trimestre</div>
     </div>
   </section>
 
+  ${P.w >= 37 ? `<section class="section"><div class="card warm" onclick="openHito('nacimiento')" role="button" tabindex="0"><span class="eyebrow">${P.remaining < 0 ? 'Pasó la fecha probable' : 'Ya a término'}</span><h3>¿Ya nació?</h3><p class="sub">Marca el nacimiento y la app pasa a acompañarlos en los primeros días.</p></div></section>` : ''}
   <section class="section"><div class="card">
     <div class="size"><div class="orb"><img src="/img/tamano/${c.img}.svg" alt="${esc(c.cmp)}" width="96" height="96"></div>
-    <div class="txt"><span class="eyebrow">${porPeso ? 'Peso aproximado' : 'Tamaño aproximado'}</span><h3>${sizeLead}</h3><p>${sizeDetail}</p></div></div>
+    ${c.cm ? `<div class="txt"><span class="eyebrow">${porPeso ? 'Peso aproximado' : 'Tamaño aproximado'}</span><h3>${sizeLead}</h3><p>${sizeDetail}</p></div>` : `<div class="txt"><span class="eyebrow">Tamaño</span><h3>Todavía no hay embrión</h3><p>La cuenta empieza en la última regla; la fecundación ocurre hacia la semana 3.</p></div>`}</div>
   </div></section>
 
   <section class="section"><div class="section-head"><h2>Esta semana</h2><button class="link" onclick="go('evolucion')">Ver evolución</button></div>
@@ -294,6 +301,32 @@ function renderHoy(){
   ${disclaimer()}`;
 }
 
+function renderHoyNacido(P){
+  const me = yo(), n = P.diasVida, nombre = S.pregnancy.babyName || 'El bebé';
+  const match = S.names.find(x => x.votes?.mother === 'fav' && x.votes?.partner === 'fav') || S.names.find(x => x.votes?.mother && x.votes?.partner && x.votes.mother !== 'no' && x.votes.partner !== 'no');
+  return `${topbar()}
+  <section class="hero">
+    <span class="eyebrow">${cap(fmtLong(today()))}</span>
+    <div class="week num">${n} <span>${n===1?'día':'días'}</span></div>
+    <p style="color:var(--hero-muted);font-size:14px">${nombre === 'El bebé' ? 'de vida' : `de vida de ${esc(nombre)}`} · nació el ${esc(fmtLong(P.nacDate))}</p>
+    <div class="progress"><i style="width:100%"></i></div>
+    <div class="trim"><span>Test</span><span>Semana 14</span><span>Semana 28</span><span>Nacimiento</span></div>
+    <div class="meta">
+      <div><strong class="num">${esc(fmtShort(P.nacDate))}</strong>Nacimiento</div>
+      <div><strong class="num">${semanaCorta(Math.max(0, diffDays(P.nacDate, P.lmpEff)))}</strong>semanas al nacer</div>
+      <div><strong class="num">${Math.floor(n/7)}</strong>${Math.floor(n/7)===1?'semana de vida':'semanas de vida'}</div>
+    </div>
+  </section>
+  <section class="section"><div class="card accent"><span class="eyebrow">Para ${me==='mother' ? 'ti' : esc(quien('mother'))}</span><h3>Los primeros días</h3><p class="sub">El cuerpo necesita semanas para recuperarse: sangrado (loquios) que va bajando, molestias en el pecho al empezar la lactancia y un cansancio que no se parece a ningún otro. Dormir cuando el bebé duerme no es un consejo vacío. La revisión posparto suele ser a las 4–6 semanas.</p></div>
+  <div class="card warm"><span class="eyebrow">Para ${me==='partner' ? 'ti' : esc(quien('partner'))}</span><h3>Ahora es cuando más cuentas</h3><p class="sub">Ocúpate de la casa, las visitas y las comidas sin que nadie te lo pida. Cambia pañales, baña al bebé, levántate por la noche aunque haya lactancia materna: el descanso de ella es parte del cuidado del bebé. Y mira cómo está ella de ánimo: si a las dos semanas sigue muy abajo, es momento de hablarlo con su equipo médico.</p></div>
+  <div class="card soft"><span class="eyebrow">Cuándo consultar sin esperar</span><p class="sub" style="margin-top:6px">Para ella: sangrado muy abundante, fiebre, dolor intenso en el pecho o en la herida, dolor de cabeza fuerte o alteraciones de la visión. Para el bebé: fiebre, rechazo de las tomas, color amarillo intenso o dificultad para respirar. Ante cualquiera, contacta con el equipo médico o llama al ${esc(pais().emergencias)}.</p></div></section>
+  <section class="section"><div class="section-head"><h2>Guardar estos días</h2></div>
+    <div class="card"><ul class="list plum"><li>El nacimiento: cómo fue, la hora, quién estaba.</li><li>${match ? `El nombre: ${esc(match.name)}. ¿Lo confirmamos?` : 'El nombre que eligieron y por qué.'}</li><li>La primera foto de los tres.</li></ul>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn soft sm" onclick="openRecuerdo(null, 'El día que nació', '${iso(P.nacDate)}')">Guardar el recuerdo</button><button class="btn ghost sm" onclick="openHito('nacimiento')">Editar el nacimiento</button></div></div>
+  </section>
+  ${disclaimer()}`;
+}
+
 // ====== EVOLUCIÓN ======
 function renderEvolucion(){
   const P = preg(), items = timeline(), t = today();
@@ -301,13 +334,13 @@ function renderEvolucion(){
   const html = items.map(h => {
     const isFuture = h.date > t;
     let marker = '';
-    if (!nowMarked && isFuture && !h.done) { nowMarked = true; marker = `<div class="tl-item now"><div class="knot"></div><div class="when">Hoy · ${semanaTxt(P.days)}</div><h3>Aquí estamos</h3><p>El bebé es como ${esc(contenido(P.w).cmp)}.</p></div>`; }
+    if (!nowMarked && isFuture && !h.done && !P.nacido) { nowMarked = true; marker = `<div class="tl-item now"><div class="knot"></div><div class="when">Hoy · ${semanaTxt(P.days)}</div><h3>Aquí estamos</h3><p>${esc(comoTxt(contenido(P.w)))}</p></div>`; }
     return marker + `<div class="tl-item ${h.done?'done':'up'} ${h.emocional?'emo':''}" onclick="openHito('${h.id}')" role="button" tabindex="0">
       <div class="knot">${h.done ? I.check : ''}</div>
       <div class="when"><span class="num">${cap(fmtShort(h.date))}${h.estimated && !h.done ? ' (aprox.)' : ''}</span><span>·</span><span>${semanaCorta(Math.max(0,h.ga))}</span>${h.custom ? '<span class="chip warm" style="padding:2px 8px">Nuestro</span>' : ''}${h.porConfirmar ? '<span class="chip amber" style="padding:2px 8px">¿Ya pasó?</span>' : ''}</div>
       <h3>${esc(h.title)} <span style="display:inline-block;vertical-align:middle;width:16px;height:16px;color:var(--ink3);margin-left:4px">${I.edit.replace('<svg','<svg fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"')}</span></h3><p>${esc(h.desc)}</p>
       ${h.note ? `<div class="note">${esc(h.note)}</div>` : ''}
-      ${h.photo ? `<div class="thumb"><img src="${h.photo}" alt=""></div>` : ''}
+      ${h.photo ? `<div class="thumb"><img src="${fotoSrc(h.photo)}" data-foto="${esc(h.photo)}" alt=""></div>` : ''}
     </div>`;
   }).join('');
   const done = items.filter(h => h.done).length;
@@ -356,7 +389,7 @@ function renderAnalisis(){
 function renderEcos(){
   const list = [...S.ultrasounds].sort((a,b) => (b.date||'').localeCompare(a.date||''));
   if (!list.length) return emptyState(I.photo, 'Todavía no hay ecografías', 'Cada ecografía es un momento importante. Guarda la imagen, la fecha y lo que les dijeron.', `<button class="btn soft sm" onclick="openEco()">Añadir ecografía</button>`);
-  return `<div class="section" style="margin-top:4px"><div class="eco-grid">${list.map(e => `<button class="eco" onclick="openEco('${e.id}')">${e.photo ? `<img src="${e.photo}" alt="Ecografía">` : '<div class="img">Sin imagen</div>'}<div class="bd"><b>${semanaTxt(Math.max(0,gaOf(e.date)))}</b><small>${cap(fmtShort(e.date))}${e.fhr ? ` · ${e.fhr} lpm` : ''}</small></div></button>`).join('')}</div></div>`;
+  return `<div class="section" style="margin-top:4px"><div class="eco-grid">${list.map(e => `<button class="eco" onclick="openEco('${e.id}')">${e.photo ? `<img src="${fotoSrc(e.photo)}" data-foto="${esc(e.photo)}" alt="Ecografía">` : '<div class="img">Sin imagen</div>'}<div class="bd"><b>${semanaTxt(Math.max(0,gaOf(e.date)))}</b><small>${cap(fmtShort(e.date))}${e.fhr ? ` · ${e.fhr} lpm` : ''}</small></div></button>`).join('')}</div></div>`;
 }
 function renderSintomas(){
   const t = iso(today());
@@ -394,7 +427,7 @@ function renderNosotros(){
       ${tile('familia', I.people, 'Familia', sabe ? `${sabe} ya lo saben` : 'Todavía es un secreto')}
       ${tile('tareas', I.list, 'Tareas', pend ? `${pend} pendientes` : 'Todo al día')}
     </div>
-    ${last ? `<div class="section"><div class="section-head"><h2>Último recuerdo</h2><button class="link" onclick="subUs('recuerdos')">Ver todos</button></div><div class="mem-card" onclick="openRecuerdo('${last.id}')" role="button" tabindex="0">${last.photo ? `<img src="${last.photo}" alt="">` : '<div class="ph"></div>'}<div class="bd"><div class="who">${esc(quien(last.author))} · ${cap(fmtShort(last.date))} · ${semanaCorta(Math.max(0,gaOf(last.date)))}</div><h3>${esc(last.title)}</h3><p>${esc(last.text)}</p></div></div></div>` : ''}`;
+    ${last ? `<div class="section"><div class="section-head"><h2>Último recuerdo</h2><button class="link" onclick="subUs('recuerdos')">Ver todos</button></div><div class="mem-card" onclick="openRecuerdo('${last.id}')" role="button" tabindex="0">${last.photo ? `<img src="${fotoSrc(last.photo)}" data-foto="${esc(last.photo)}" alt="">` : '<div class="ph"></div>'}<div class="bd"><div class="who">${esc(quien(last.author))} · ${cap(fmtShort(last.date))} · ${semanaCorta(Math.max(0,gaOf(last.date)))}</div><h3>${esc(last.title)}</h3><p>${esc(last.text)}</p></div></div></div>` : ''}`;
 }
 function subUs(k){ L.sub.us = k; saveLocal(); render(); window.scrollTo(0,0); }
 function backUs(){ delete L.sub.us; saveLocal(); render(); }
@@ -403,7 +436,7 @@ const backBtn = `<button class="back" onclick="backUs()">${I.chevL} Nosotros</bu
 function renderRecuerdos(){
   const list = [...S.memories].sort((a,b) => b.date.localeCompare(a.date));
   return `${topbar('Recuerdos')}${backBtn}<h1 class="h-page">Recuerdos</h1><p class="sub">La historia de este bebé, contada por los dos.</p>
-    <div class="section mem">${list.length ? list.map(m => `<div class="mem-card" onclick="openRecuerdo('${m.id}')" role="button" tabindex="0">${m.photo ? `<img src="${m.photo}" alt="">` : '<div class="ph"></div>'}<div class="bd"><div class="who"><span class="who-mini"><i>${esc(iniciales(m.author))}</i></span>${esc(quien(m.author))} · ${cap(fmtShort(m.date))} · ${semanaTxt(Math.max(0,gaOf(m.date)))}</div><h3>${esc(m.title)}</h3><p>${esc(m.text)}</p>${m.audio ? `<span class="audio">${I.mic} Audio guardado</span>` : ''}</div></div>`).join('') : emptyState(I.camera, 'Esta historia recién empieza', 'Guarda el día que se enteraron, la primera ecografía, la reacción de los abuelos. Todo lo que quieran recordar.')}</div>
+    <div class="section mem">${list.length ? list.map(m => `<div class="mem-card" onclick="openRecuerdo('${m.id}')" role="button" tabindex="0">${m.photo ? `<img src="${fotoSrc(m.photo)}" data-foto="${esc(m.photo)}" alt="">` : '<div class="ph"></div>'}<div class="bd"><div class="who"><span class="who-mini"><i>${esc(iniciales(m.author))}</i></span>${esc(quien(m.author))} · ${cap(fmtShort(m.date))} · ${semanaTxt(Math.max(0,gaOf(m.date)))}</div><h3>${esc(m.title)}</h3><p>${esc(m.text)}</p>${m.audio ? `<span class="audio">${I.mic} Audio guardado</span>` : ''}</div></div>`).join('') : emptyState(I.camera, 'Esta historia recién empieza', 'Guarda el día que se enteraron, la primera ecografía, la reacción de los abuelos. Todo lo que quieran recordar.')}</div>
     <button class="fab" onclick="openRecuerdo()" aria-label="Añadir recuerdo">${I.plus}</button>`;
 }
 function renderNombres(){
@@ -469,7 +502,7 @@ function contextoIA(){
   const hitos = timeline().filter(h => h.done).map(h => h.title);
   const c = contenido(P.w);
   return `CONTEXTO DEL EMBARAZO (datos reales guardados por la pareja en la app):
-- Hoy: ${fmtLong(t)}. Edad gestacional: ${semanaTxt(P.days)} (${['','primer','segundo','tercer'][P.trimester]} trimestre). Fecha probable de parto: ${fmtShort(P.edd)} (${P.remaining} días).
+- Hoy: ${fmtLong(t)}. ${P.nacido ? `EL BEBÉ YA NACIÓ el ${fmtLong(P.nacDate)} (${P.diasVida} días de vida). Estamos en el posparto: adapta todo a esta etapa.` : `Edad gestacional: ${semanaTxt(P.days)} (${['','primer','segundo','tercer'][P.trimester]} trimestre). Fecha probable de parto: ${fmtShort(P.edd)} (${P.remaining >= 0 ? `faltan ${P.remaining} días` : `pasó hace ${-P.remaining} días`}).`}
 - Quien pregunta: ${me === 'mother' ? 'la persona embarazada' : 'la pareja (padre/madre no gestante)'}${p.names?.[me] ? ', se llama ' + p.names[me] : ''}. La otra persona se llama ${p.names?.[me==='mother'?'partner':'mother'] || '—'}.
 - Edad materna: ${p.maternalAge || 'no indicada'}. ${p.firstPregnancy === false ? 'No es su primer embarazo.' : p.firstPregnancy ? 'Es su primer embarazo.' : ''} Tipo: ${p.type === 'gemelar' ? 'gemelar' : p.type === 'nose' ? 'todavía no saben si es único o múltiple' : 'único'}.
 - País: ${pais().nombre}. Terminología local: ${pais().matrona}, ${pais().gine}, ${pais().analisis}. Emergencias: ${pais().emergencias}.

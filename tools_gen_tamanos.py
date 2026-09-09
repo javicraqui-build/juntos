@@ -212,6 +212,12 @@ ITEMS['sandia'] = svg(grad('g','#7FB56A','#2F6B3A', cx=.38, cy=.36),
   '<g clip-path="url(#c)">' + ''.join(f'<path d="M{x} 40 C {x-14} 80, {x-14} 130, {x} 175" stroke="#1F4A2A" stroke-width="9" fill="none" opacity=".55"/>' for x in [62, 86, 110, 134, 158]) + '</g>'
   + stem(100, 48, 10, 5, '#6B5237') + hl(76, 82, 14, 10, -25))
 
+# 1-3 · célula / blastocisto: esfera translúcida con un racimo de células dentro
+ITEMS['celula'] = svg(grad('g','#F2E4EC','#B98FB0', cx=.4, cy=.36) + grad('n','#C9A3C4','#7E5A8A', cx=.4, cy=.35),
+  '<circle cx="100" cy="106" r="56" fill="url(#g)"/><circle cx="100" cy="106" r="56" fill="none" stroke="#8E6A98" stroke-width="3" opacity=".55"/>'
+  + ''.join(f'<circle cx="{x}" cy="{y}" r="{r}" fill="url(#n)" opacity=".92"/>' for x, y, r in [(90,96,13),(108,94,12),(96,112,12),(112,110,11),(101,103,9)])
+  + hl(80, 82, 16, 10, -30, .5))
+
 for k, s in ITEMS.items():
     open(os.path.join(OUT, f'{k}.svg'), 'w').write(s)
 print(len(ITEMS), 'svg escritos en', OUT)

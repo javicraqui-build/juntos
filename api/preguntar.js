@@ -4,6 +4,7 @@
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://eidspdbyvbyjntkxiavz.supabase.co';
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || 'sb_publishable_DTQwi_Yr3RK3oZa1qT_tVQ_Wd7VmZ66';
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5';
+const LIMITE_DIARIO = Number(process.env.AI_DAILY_LIMIT || 40);
 
 const REGLAS = `Eres el asistente de "juntos", una app de acompañamiento del embarazo para parejas. Responde SIEMPRE en español neutro y natural (válido para España y Latinoamérica), tuteando, en un tono calmado, cálido y honesto. Nunca uses inglés.
 Reglas:
@@ -33,6 +34,13 @@ export default async function handler(req, res) {
   if (!user) return res.status(401).json({ error: 'unauthorized', message: 'Vuelve a entrar en la app.' });
 
   if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'no_key', message: 'El asistente con IA no está configurado.' });
+
+  // Límite diario por persona (RPC ai_tick con el JWT del usuario; RLS y auth.uid() hacen el resto)
+  try {
+    const t = await fetch(`${SUPABASE_URL}/rest/v1/rpc/ai_tick`, { method: 'POST', headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ p_limit: LIMITE_DIARIO }) });
+    if (t.ok) { const n = Number(await t.text()); if (n > LIMITE_DIARIO) return res.status(429).json({ error: 'limit', message: `Ya hicieron ${LIMITE_DIARIO} preguntas hoy. Mañana el asistente vuelve a estar disponible; mientras tanto, anota la duda para la próxima cita.` }); }
+    else console.warn('ai_tick', t.status, (await t.text()).slice(0, 200));
+  } catch (e) { console.warn('ai_tick', e); }
 
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }

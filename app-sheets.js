@@ -3,7 +3,7 @@ function openSheet(html){
   closeSheet();
   const o = document.createElement('div'); o.className = 'overlay'; o.innerHTML = `<div class="sheet" role="dialog"><div class="grab"></div>${html}</div>`;
   o.addEventListener('click', e => { if (e.target === o) closeSheet(); });
-  document.body.appendChild(o); document.body.style.overflow = 'hidden';
+  document.body.appendChild(o); document.body.style.overflow = 'hidden'; if (typeof hydrateFotos === 'function') hydrateFotos(o);
 }
 function closeSheet(){ document.querySelectorAll('.overlay').forEach(o => o.remove()); document.body.style.overflow = ''; if (typeof PENDING_RENDER !== 'undefined' && PENDING_RENDER) { PENDING_RENDER = false; render(); } }
 function getOrNew(list, id){ let x = id ? list.find(t => t.id === id) : null; if (!x) { x = { id: id || uid() }; list.push(x); } return x; }
@@ -11,7 +11,7 @@ function fd(form){ const o = {}; new FormData(form).forEach((v, k) => { o[k] = t
 function fld(label, name, type, val, extra){ return `<div class="field"><label>${label}</label><input name="${name}" type="${type||'text'}" value="${esc(val||'')}" ${extra||''}></div>`; }
 function txt(label, name, val, ph){ return `<div class="field"><label>${label}</label><textarea name="${name}" placeholder="${esc(ph||'')}">${esc(val||'')}</textarea></div>`; }
 function sel(label, name, opts, val){ return `<div class="field"><label>${label}</label><select name="${name}">${opts.map(([k,l]) => `<option value="${k}" ${k===val?'selected':''}>${l}</option>`).join('')}</select></div>`; }
-function photoField(name, val){ return `<div class="field"><label>Foto</label><div class="photo-in"><img id="prev-${name}" src="${val||''}" alt="" ${val?'':'hidden'}><input type="file" accept="image/*" onchange="loadPhoto(this,'${name}')" style="flex:1"><input type="hidden" name="${name}" value="${esc(val||'')}"></div><p class="hint">Se guarda en tamaño reducido para que la sincronización sea rápida.</p></div>`; }
+function photoField(name, val){ return `<div class="field"><label>Foto</label><div class="photo-in"><img id="prev-${name}" src="${fotoSrc(val||'')}" data-foto="${esc(val||'')}" alt="" ${val?'':'hidden'}><input type="file" accept="image/*" onchange="loadPhoto(this,'${name}')" style="flex:1"><input type="hidden" name="${name}" value="${esc(val||'')}"></div><p class="hint">Se guarda en tamaño reducido para que la sincronización sea rápida.</p></div>`; }
 function loadPhoto(input, name){
   const f = input.files?.[0]; if (!f) return;
   const img = new Image(); const url = URL.createObjectURL(f);
@@ -58,13 +58,13 @@ function openAnalisis(id){
     </form>${disclaimer()}`);
 }
 function saveAnalisis(id, form){ const f = fd(form); const x = getOrNew(S.tests, id); Object.assign(x, f); closeSheet(); commit(); toast('Guardado'); }
-function delAnalisis(id){ S.tests = S.tests.filter(x => x.id !== id); closeSheet(); commit(); }
+function delAnalisis(id){ quitarFoto(S.tests.find(x => x.id === id)?.photo); S.tests = S.tests.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Ecografías ---
 function openEco(id){
   const e = S.ultrasounds.find(t => t.id === id) || { date: iso(today()), crl:'', fhr:'', comments:'', doctor:'', clinic:'', photo:'' };
   openSheet(`<h2>${id ? 'Ecografía · ' + semanaTxt(Math.max(0,gaOf(e.date))) : 'Nueva ecografía'}</h2><p class="sub">${id ? cap(fmtLong(e.date)) : 'Un momento importante. Guarda la imagen y lo que les dijeron.'}</p>
-    ${id && e.photo ? `<img src="${e.photo}" alt="Ecografía" style="border-radius:16px;margin-bottom:14px">` : ''}
+    ${id && e.photo ? `<img src="${fotoSrc(e.photo)}" data-foto="${esc(e.photo)}" alt="Ecografía" style="border-radius:16px;margin-bottom:14px">` : ''}
     ${id ? `<div class="kv">${e.crl ? `<div><small>CRL</small><b class="num">${esc(e.crl)} mm</b></div>` : ''}${e.fhr ? `<div><small>Frecuencia cardíaca</small><b class="num">${esc(e.fhr)} lpm</b></div>` : ''}</div>` : ''}
     <form onsubmit="event.preventDefault(); saveEco('${id||''}', this)">
       ${fld('Fecha', 'date', 'date', e.date, 'required')}
@@ -77,7 +77,7 @@ function openEco(id){
     ${id ? `<div class="card soft" style="margin-top:14px"><span class="eyebrow">Fecha probable de parto</span><p class="sub" style="margin:4px 0 10px">Si en esta ecografía ajustaron la fecha, actualízala y se recalculan todos los hitos.</p><button class="btn ghost sm" onclick="openFPP()">Actualizar la fecha probable de parto</button></div>` : ''}`);
 }
 function saveEco(id, form){ const f = fd(form); const e = getOrNew(S.ultrasounds, id); Object.assign(e, f); if (!S.milestones.eco1?.done && S.ultrasounds.length === 1) { S.milestones.eco1 = { done:true, date:e.date }; if (e.fhr) S.milestones.latido = { done:true, date:e.date }; S.milestones.intrauterino = { done:true, date:e.date }; } closeSheet(); commit(); toast('Ecografía guardada'); }
-function delEco(id){ S.ultrasounds = S.ultrasounds.filter(x => x.id !== id); closeSheet(); commit(); }
+function delEco(id){ quitarFoto(S.ultrasounds.find(x => x.id === id)?.photo); S.ultrasounds = S.ultrasounds.filter(x => x.id !== id); closeSheet(); commit(); }
 function openFPP(){
   const P = preg();
   openSheet(`<h2>Fecha probable de parto</h2><p class="sub">Ahora mismo: ${cap(fmtLong(P.edd))}${S.pregnancy.eddOverride ? ' (ajustada por ecografía)' : ' (calculada por la última menstruación)'}.</p>
@@ -124,7 +124,7 @@ function confirmarHito(id){ const h = timeline().find(x => x.id === id); if (!h)
 function ocultarHito(id){ if (!confirm('¿Quitar este hito de la línea de tiempo? Puedes volver a mostrarlo desde tu perfil.')) return; S.milestones[id] = Object.assign(S.milestones[id] || {}, { hidden:true }); closeSheet(); commit(); toast('Hito quitado'); }
 function restaurarHitos(){ Object.values(S.milestones).forEach(m => { if (m) delete m.hidden; }); closeSheet(); commit(); toast('Hitos restaurados'); }
 function saveHito(id, custom, form){ const f = fd(form); if (custom) { const c = getOrNew(S.customMilestones, id); Object.assign(c, { title:f.title, date:f.date, done: f.done === '1', note:f.note, photo:f.photo }); } else { const prev = S.milestones[id] || {}; S.milestones[id] = { date: f.date || prev.date || null, done: f.done === '1', note:f.note, photo:f.photo }; } closeSheet(); commit(); toast('Guardado'); }
-function delHito(id){ S.customMilestones = S.customMilestones.filter(x => x.id !== id); closeSheet(); commit(); }
+function delHito(id){ quitarFoto(S.customMilestones.find(x => x.id === id)?.photo); S.customMilestones = S.customMilestones.filter(x => x.id !== id); closeSheet(); commit(); }
 function openHitoNuevo(){
   openSheet(`<h2>Nuevo hito</h2><p class="sub">Los momentos que solo son suyos.</p>
     <div class="pillrow" style="margin-bottom:14px">${HITOS_SUGERIDOS.map(s => `<button type="button" onclick="document.querySelector('[name=title]').value='${esc(s).replace(/'/g,"\\'")}'">${esc(s)}</button>`).join('')}</div>
@@ -153,7 +153,7 @@ function openRecuerdo(id, title, date){
     </form>`);
 }
 function saveRecuerdo(id, form){ const f = fd(form); const m = getOrNew(S.memories, id); Object.assign(m, { title:f.title, date:f.date, author:f.author, text:f.text, photo:f.photo, audio: f.audio === '1' }); closeSheet(); commit(); toast('Recuerdo guardado'); }
-function delRecuerdo(id){ S.memories = S.memories.filter(x => x.id !== id); closeSheet(); commit(); }
+function delRecuerdo(id){ quitarFoto(S.memories.find(x => x.id === id)?.photo); S.memories = S.memories.filter(x => x.id !== id); closeSheet(); commit(); }
 
 // --- Nombres ---
 function openNombre(id){

@@ -19,6 +19,8 @@ function semanaTxt(days){ const w = Math.floor(days/7), d = days % 7; return d ?
 function semanaCorta(days){ const w = Math.floor(days/7), d = days % 7; return `${w}+${d}`; }
 function gaOf(dateIso){ const P = preg(); return diffDays(pd(dateIso), P.lmpEff); }
 function relDias(n){ if(n === 0) return 'Hoy'; if(n === 1) return 'Mañana'; if(n === -1) return 'Ayer'; if(n > 1) return `Faltan ${n} días`; return `Hace ${-n} días`; }
+function fotoSrc(v){ return v || ''; }  // en prod se resuelve contra Storage
+function quitarFoto(v){}                 // en prod borra el archivo de Storage
 function toast(msg){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2200); }
 
 // ====== ICONOS ======
@@ -83,9 +85,11 @@ function preg(){
   const w = Math.floor(days/7), d = days % 7;
   const remaining = diffDays(edd, today());
   const trimester = w < 14 ? 1 : w < 28 ? 2 : 3;
-  return { edd, lmpEff, days, w, d, remaining, trimester, pct: clamp(days/280, 0, 1) };
+  const nac = S.milestones?.nacimiento; const nacido = !!(nac && nac.done); const nacDate = nacido ? (pd(nac.date) || edd) : null;
+  return { edd, lmpEff, days, w, d, remaining, trimester, pct: clamp(days/280, 0, 1), nacido, nacDate, diasVida: nacido ? diffDays(today(), nacDate) : null };
 }
-function contenido(w){ const k = clamp(w, 4, 42); return SEMANAS.find(x => x.w === k); }
+function contenido(w){ const k = clamp(w, 1, 42); return SEMANAS.find(x => x.w === k); }
+function comoTxt(c){ return c.cm ? `El bebé es como ${c.cmp}.` : 'Todavía no hay embrión que medir.'; }
 function hitoFecha(h){ return addDays(preg().lmpEff, h.w*7 + (h.d||0)); }
 
 // Línea de tiempo: hitos base + personalizados, con estado
@@ -119,8 +123,9 @@ function proximoHito(){
 function notificaciones(){
   const P = preg(), t = today(), out = [];
   const c = contenido(P.w);
+  if (P.nacido) { out.push({ ic:I.heart, txt:`${P.diasVida === 0 ? 'Hoy nació' : `Hace ${P.diasVida} ${P.diasVida === 1 ? 'día' : 'días'} que nació`} ❤️`, sub:'Ya está aquí' }); return out; }
   if (P.d === 0) out.push({ ic:I.heart, txt:`Hoy empieza la semana ${P.w} ❤️`, sub:'Un capítulo nuevo' });
-  else out.push({ ic:I.heart, txt:`${semanaTxt(P.days)}. El bebé es como ${c.cmp}.`, sub:'Hoy' });
+  else out.push({ ic:I.heart, txt:`${semanaTxt(P.days)}. ${comoTxt(c)}`, sub:'Hoy' });
   if ((P.w === 14 || P.w === 28) && P.d < 7) out.push({ ic:I.spark, txt:`Nuevo hito: ya están en el ${P.w===14?'segundo':'tercer'} trimestre.`, sub:'Esta semana' });
   const nx = proximoHito();
   if (nx) { const n = diffDays(nx.date, t); out.push({ ic:I.calendar, txt: n === 0 ? `Hoy: ${nx.title}.` : n === 1 ? `Mañana ${nx.kind==='cita'?'tienen cita: ':''}${nx.title}.` : `Faltan ${n} días para ${nx.title}.`, sub: cap(fmtLong(nx.date)) }); }

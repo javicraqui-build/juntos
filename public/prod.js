@@ -14,6 +14,7 @@ function render(){
   if (!L.role) { app.innerHTML = renderRolePick(); $('.tabbar')?.remove(); return; }
   const fn = { hoy: renderHoy, evolucion: renderEvolucion, salud: renderSalud, nosotros: renderNosotros, preguntar: renderPreguntar }[L.tab] || renderHoy;
   app.innerHTML = `<div class="screen ${L.tab==='preguntar'?'chat-screen':''}">${fn()}</div>`;
+  hydrateFotos(app);
   let tb = $('.tabbar');
   if (!tb) { tb = document.createElement('div'); tb.className = 'tabbar'; document.body.appendChild(tb); }
   tb.innerHTML = `<nav>${TABS.map(([k,l,ic]) => `<button class="${L.tab===k?'on':''}" onclick="go('${k}')" aria-label="${l}">${ic}<span>${l}</span></button>`).join('')}</nav>`;
@@ -146,7 +147,7 @@ function renderIfFree(){ if (!document.querySelector('.overlay') && !['INPUT','T
 function adoptWorkspace(w, role){
   if (Array.isArray(w)) w = w[0];
   WS = w; S = w.data; BASE = clone(w.data); L.role = role || null; if (S?.pregnancy) S.pregnancy.inviteCode = w.invite_code; saveLocal();
-  setLocal(); dbOn = true; subscribe(); render();
+  setLocal(); dbOn = true; subscribe(); render(); setTimeout(migrarFotos, 1500);
 }
 function applyRemote(row){
   const d = row?.data; if (!d || !d.pregnancy || !WS) return;
@@ -247,6 +248,62 @@ async function unirseDesdePerfil(code, role){
   L.pendingCode = null; OB.step = 0; closeSheet(); adoptWorkspace(chk.data, role); toast('Ya están en el mismo espacio');
 }
 function invitacionTxt(){ return `Estamos esperando un bebé y llevamos el embarazo juntos en esta app. Crea tu cuenta con tu correo y usa el código ${S.pregnancy.inviteCode}: ${location.origin}/?invitar=${S.pregnancy.inviteCode}`; }
+
+// --- fotos: bucket privado 'fotos', ruta <workspace>/<id>.jpg; en el documento se guarda "foto:<ruta>" ---
+const FOTO_URL = new Map();   // ruta → { url, exp }
+function fotoSrc(v){ if (!v) return ''; if (!v.startsWith('foto:')) return v; const c = FOTO_URL.get(v.slice(5)); return c && c.exp > Date.now() ? c.url : ''; }
+async function fotoUrl(path){
+  const c = FOTO_URL.get(path); if (c && c.exp > Date.now()) return c.url;
+  const { data, error } = await sb.storage.from('fotos').createSignedUrl(path, 3600);
+  if (error || !data?.signedUrl) { console.warn('foto', error); return ''; }
+  FOTO_URL.set(path, { url: data.signedUrl, exp: Date.now() + 50*60*1000 }); return data.signedUrl;
+}
+function hydrateFotos(root){
+  (root || document).querySelectorAll('img[data-foto^="foto:"]').forEach(async img => {
+    if (img.getAttribute('src')) return;
+    const url = await fotoUrl(img.dataset.foto.slice(5)); if (url && img.isConnected) { img.src = url; img.hidden = false; }
+  });
+}
+function reducirFoto(file){
+  return new Promise((res, rej) => {
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = () => { const max = 1280, r = Math.min(1, max / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width*r); c.height = Math.round(img.height*r); c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url); c.toBlob(b => b ? res(b) : rej(new Error('canvas')), 'image/jpeg', .82); };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('img')); };
+    img.src = url;
+  });
+}
+async function subirFoto(blob){
+  if (!WS) throw new Error('sin espacio');
+  const path = `${WS.id}/${uid()}${uid()}.jpg`;
+  const { error } = await sb.storage.from('fotos').upload(path, blob, { contentType:'image/jpeg', upsert:false });
+  if (error) throw error;
+  return 'foto:' + path;
+}
+async function loadPhoto(input, name){
+  const f = input.files?.[0]; if (!f) return;
+  const form = input.closest('form'); const submit = form?.querySelector('button[type=submit]'); const hint = input.parentElement.parentElement.querySelector('.hint');
+  const h = input.parentElement.querySelector(`input[name="${name}"]`); const p = $('#prev-'+name);
+  if (submit) submit.disabled = true; if (hint) hint.textContent = 'Subiendo la foto…';
+  try {
+    const blob = await reducirFoto(f); const ref = await subirFoto(blob);
+    h.value = ref; p.src = URL.createObjectURL(blob); p.hidden = false; if (hint) hint.textContent = 'Foto lista. Solo la ven las dos personas del espacio.';
+  } catch (e) { console.warn(e); if (hint) hint.textContent = 'No se pudo subir la foto. Revisa la conexión e inténtalo de nuevo.'; input.value = ''; }
+  if (submit) submit.disabled = false;
+}
+function dataUrlToBlob(d){ const [meta, b64] = d.split(','); const mime = (meta.match(/data:(.*?);/) || [])[1] || 'image/jpeg'; const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: mime }); }
+// Fotos antiguas guardadas en base64 dentro del documento: se suben una vez y se reemplazan por la ruta.
+async function migrarFotos(){
+  if (!WS || !S) return;
+  const items = [];
+  for (const c of ['memories','tests','ultrasounds','customMilestones']) (S[c] || []).forEach(x => { if (x.photo && x.photo.startsWith('data:')) items.push(x); });
+  Object.values(S.milestones || {}).forEach(m => { if (m && m.photo && m.photo.startsWith('data:')) items.push(m); });
+  if (!items.length) return;
+  let n = 0;
+  for (const x of items) { try { x.photo = await subirFoto(dataUrlToBlob(x.photo)); n++; } catch (e) { console.warn('migrar foto', e); } }
+  if (n) { commit(); toast(`${n} ${n === 1 ? 'foto pasada' : 'fotos pasadas'} al almacenamiento seguro`); }
+}
+function quitarFoto(ref){ borrarFoto(ref); }
+async function borrarFoto(ref){ if (ref && ref.startsWith('foto:')) { try { await sb.storage.from('fotos').remove([ref.slice(5)]); } catch (e) {} } }
 
 // --- asistente: API propia ---
 async function preguntar(q){
