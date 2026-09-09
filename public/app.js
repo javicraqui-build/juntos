@@ -21,6 +21,8 @@ function gaOf(dateIso){ const P = preg(); return diffDays(pd(dateIso), P.lmpEff)
 function relDias(n){ if(n === 0) return 'Hoy'; if(n === 1) return 'Mañana'; if(n === -1) return 'Ayer'; if(n > 1) return `Faltan ${n} días`; return `Hace ${-n} días`; }
 function fotoSrc(v){ return v || ''; }  // en prod se resuelve contra Storage
 function quitarFoto(v){}                 // en prod borra el archivo de Storage
+function chatMsgs(){ return S.chat; }     // en prod: conversación privada de cada persona
+function chatPersist(){ persist(); }
 function toast(msg){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2200); }
 
 // ====== ICONOS ======
@@ -356,9 +358,9 @@ function renderSalud(){
   const sub = L.sub.salud || 'citas';
   const seg = [['citas','Citas'],['analisis','Análisis'],['ecos','Ecografías'],['sintomas','Síntomas']].map(([k,l]) => `<button class="${sub===k?'on':''}" onclick="subSalud('${k}')">${l}</button>`).join('');
   const body = { citas: renderCitas, analisis: renderAnalisis, ecos: renderEcos, sintomas: renderSintomas }[sub]();
-  const fabs = { citas: `openCita()`, analisis: `openAnalisis()`, ecos: `openEco()`, sintomas: `openSintomas()` };
+  const fabs = { citas: `openCita()`, analisis: `openAnalisis()`, ecos: `openEco()`, sintomas: yo() === 'mother' ? `openSintomas()` : null };
   return `${topbar('Salud')}<h1 class="h-page">Salud</h1><p class="sub">Todo lo médico, claro y en un solo lugar.</p><div class="seg">${seg}</div>${body}${disclaimer()}
-    <button class="fab" onclick="${fabs[sub]}" aria-label="Añadir">${I.plus}</button>`;
+    ${fabs[sub] ? `<button class="fab" onclick="${fabs[sub]}" aria-label="Añadir">${I.plus}</button>` : ''}`;
 }
 function subSalud(k){ L.sub.salud = k; saveLocal(); render(); }
 function rowCita(a){
@@ -397,11 +399,12 @@ function renderSintomas(){
   const hist = [...S.symptoms].sort((a,b) => a.date.localeCompare(b.date)).slice(-10);
   const score = s => Object.values(s.values||{}).reduce((a,b) => a+b, 0);
   const top = hoy ? SINTOMAS.filter(x => (hoy.values[x.k]||0) > 0).sort((a,b) => hoy.values[b.k]-hoy.values[a.k]) : [];
+  const ella = yo() === 'mother';
   return `<div class="section" style="margin-top:4px"><div class="card">
-      <div class="section-head" style="margin-bottom:8px"><h3 style="font-size:19px">Hoy</h3><button class="link" onclick="openSintomas()">${hoy ? 'Editar' : 'Registrar'}</button></div>
-      ${hoy ? `<div class="chips">${top.length ? top.map(x => `<span class="chip ${hoy.values[x.k]===3?'red':hoy.values[x.k]===2?'amber':'sage'}">${x.l} · ${ESCALA[hoy.values[x.k]].toLowerCase()}</span>`).join('') : '<span class="chip sage">Sin síntomas destacables</span>'}</div>${hoy.note ? `<p class="sub" style="margin-top:10px">${esc(hoy.note)}</p>` : ''}` : `<p class="sub">Todavía no has registrado cómo te sientes hoy. Un minuto alcanza.</p>`}
+      <div class="section-head" style="margin-bottom:8px"><h3 style="font-size:19px">Hoy</h3>${ella ? `<button class="link" onclick="openSintomas()">${hoy ? 'Editar' : 'Registrar'}</button>` : ''}</div>
+      ${hoy ? `<div class="chips">${top.length ? top.map(x => `<span class="chip ${hoy.values[x.k]===3?'red':hoy.values[x.k]===2?'amber':'sage'}">${x.l} · ${ESCALA[hoy.values[x.k]].toLowerCase()}</span>`).join('') : '<span class="chip sage">Sin síntomas destacables</span>'}</div>${hoy.note ? `<p class="sub" style="margin-top:10px">${esc(hoy.note)}</p>` : ''}` : `<p class="sub">${ella ? 'Todavía no has registrado cómo te sientes hoy. Un minuto alcanza.' : `${esc(quien('mother'))} todavía no ha registrado cómo se siente hoy.`}</p>`}
     </div></div>
-    ${hist.length ? `<div class="section"><div class="section-head"><h2>Últimos días</h2></div><div class="card"><div class="sym-hist">${hist.map(s => `<div class="sym-day"><div class="bar"><i style="height:${Math.max(4, Math.min(44, score(s)*3))}px" title="${score(s)}"></i></div><span class="num">${fmtShort(s.date)}</span></div>`).join('')}</div><p class="sub" style="font-size:13px;margin-top:8px">La altura resume la intensidad total del día. Sirve para ver tendencias, no para diagnosticar.</p></div></div>` : ''}
+    ${hist.length ? `<div class="section"><div class="section-head"><h2>Últimos días</h2></div><div class="card"><div class="sym-hist">${hist.map(s => `<div class="sym-day" ${ella ? `onclick="openSintomas('${s.date}')" role="button" tabindex="0" style="cursor:pointer"` : ''}><div class="bar"><i style="height:${Math.max(4, Math.min(44, score(s)*3))}px" title="${score(s)}"></i></div><span class="num">${fmtShort(s.date)}</span></div>`).join('')}</div><p class="sub" style="font-size:13px;margin-top:8px">La altura resume la intensidad total del día. Sirve para ver tendencias, no para diagnosticar.${ella ? ' Toca un día para editarlo, o cambia la fecha al registrar para añadir uno anterior.' : ''}</p></div></div>` : ''}
     <div class="section"><div class="card soft"><span class="eyebrow">Cuándo consultar sin esperar</span><p class="sub" style="margin-top:6px">Sangrado abundante, dolor abdominal intenso o en un solo lado, desmayo, dolor de cabeza fuerte con alteraciones de la visión, dificultad para respirar o fiebre alta. Ante cualquiera de estas señales, contacta con tu equipo médico o llama al ${esc(pais().emergencias)}.</p></div></div>`;
 }
 
@@ -478,18 +481,18 @@ function renderPreguntar(){
   const sug = me === 'partner'
     ? ['¿Qué debería estar haciendo yo como padre esta semana?', '¿Cómo puedo acompañarla mejor esta semana?', '¿Qué deberíamos preguntarle en la próxima cita?', '¿Cuándo tiene sentido contarle a la familia?', ...(S.pregnancy.maternalAge >= 35 ? [`¿Qué cambia porque ella tiene ${S.pregnancy.maternalAge} años?`] : ['¿Qué deberíamos preparar antes de la semana 20?'])]
     : [`¿Este síntoma es habitual en la semana ${P.w}?`, '¿Qué deberíamos preguntarle en la próxima cita?', '¿Cuándo conviene hacer el NIPT?', '¿Qué debería esperar de la próxima ecografía?', '¿Qué deberíamos preparar antes de la semana 20?'];
-  const msgs = S.chat.slice(-30);
+  const msgs = chatMsgs().slice(-30);
   const body = msgs.length ? msgs.map(m => m.role === 'user' ? `<div class="msg user">${esc(m.content)}</div>` : `${m.urgent ? urgentBox(m.urgent) : ''}<div class="msg ai">${esc(m.content)}<span class="disc">Orientación general para ${semanaTxt(P.days).toLowerCase()}. No sustituye el consejo de tu equipo médico.</span></div>`).join('')
-    : `<div class="card accent"><span class="eyebrow">Asistente</span><h3>Conoce este embarazo</h3><p class="sub">Sé que están en la ${semanaTxt(P.days).toLowerCase()}, la fecha probable de parto, las citas y los resultados que han guardado. Pregunta con contexto, sin tener que explicarlo todo.</p></div>`;
+    : `<div class="card accent"><span class="eyebrow">Asistente</span><h3>Conoce este embarazo</h3><p class="sub">Sé que están en la ${semanaTxt(P.days).toLowerCase()}, la fecha probable de parto, las citas y los resultados que han guardado. Pregunta con contexto, sin tener que explicarlo todo. Esta conversación es solo tuya: tu pareja no la ve.</p></div>`;
   return `${topbar('Preguntar')}
     <h1 class="h-page">Preguntar</h1><p class="sub" style="margin-bottom:12px">Respuestas calmadas y con contexto. ${AI_OK === false ? 'El asistente con IA todavía no está configurado: respondo con orientación general.' : ''}</p>
     <div class="suggest">${sug.map(s => `<button onclick="preguntar('${esc(s).replace(/'/g,"\\'")}')">${esc(s)}</button>`).join('')}</div>
     <div class="chat" id="chat">${body}</div>
-    ${S.chat.length ? `<div style="text-align:center;margin-top:16px"><button class="link" style="color:var(--ink3)" onclick="borrarChat()">Borrar conversación</button></div>` : ''}
+    ${chatMsgs().length ? `<div style="text-align:center;margin-top:16px"><button class="link" style="color:var(--ink3)" onclick="borrarChat()">Borrar conversación</button></div>` : ''}
     <div class="composer"><form onsubmit="event.preventDefault(); preguntar(this.q.value); this.q.value='';"><input name="q" placeholder="Escribe tu pregunta…" autocomplete="off" aria-label="Tu pregunta"><button type="submit" aria-label="Enviar">${I.send}</button></form></div>`;
 }
 function urgentBox(l){ return `<div class="alert-urgent"><strong>Esto puede necesitar atención ahora</strong>Mencionas ${esc(l)}. No esperes a la próxima cita: contacta con tu equipo médico o acude a urgencias. Si es grave, llama al <span class="tel">${esc(pais().emergencias)}</span>.</div>`; }
-function borrarChat(){ S.chat = []; commit(); }
+function borrarChat(){ chatMsgs().length = 0; chatPersist(); render(); }
 function preguntarCon(q){ L.tab = 'preguntar'; saveLocal(); render(); setTimeout(() => preguntar(q), 50); }
 
 function contextoIA(){
@@ -527,14 +530,14 @@ Reglas:
 async function preguntar(q){
   q = (q || '').trim(); if (!q) return;
   const urg = ALARMA.find(a => a.re.test(q));
-  S.chat.push({ role:'user', content:q, at:new Date().toISOString() });
-  persist(); render();
+  chatMsgs().push({ role:'user', content:q, at:new Date().toISOString() });
+  chatPersist(); render();
   const chat = $('#chat'); if (!chat) return;
   const box = document.createElement('div'); box.className = 'msg ai thinking'; box.textContent = 'Pensando…'; chat.appendChild(box); window.scrollTo(0, document.body.scrollHeight);
   if (urg) { const u = document.createElement('div'); u.innerHTML = urgentBox(urg.l); chat.insertBefore(u.firstChild, box); }
   let text = '';
   if (sampleFn) {
-    const hist = S.chat.slice(-9, -1).map(m => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.content}`).join('\n');
+    const hist = chatMsgs().slice(-9, -1).map(m => `${m.role === 'user' ? 'Usuario' : 'Asistente'}: ${m.content}`).join('\n');
     const prompt = `${REGLAS_IA}\n\n${contextoIA()}\n${urg ? `\nATENCIÓN: el mensaje menciona una posible señal de alarma (${urg.l}). Prioriza indicar atención médica urgente.\n` : ''}\n${hist ? 'CONVERSACIÓN PREVIA:\n' + hist + '\n\n' : ''}PREGUNTA ACTUAL DEL USUARIO:\n${q}\n\nResponde ahora, solo con el texto de la respuesta.`;
     try {
       const r = await sampleFn(prompt, { cache:false, modelTier:'default', onText: u => { text = u.text; box.classList.remove('thinking'); box.textContent = u.text; } });
@@ -545,8 +548,8 @@ async function preguntar(q){
   } else {
     text = respuestaLocal(q, urg);
   }
-  S.chat.push({ role:'assistant', content:text, urgent: urg ? urg.l : null, at:new Date().toISOString() });
-  commit(); window.scrollTo(0, document.body.scrollHeight);
+  chatMsgs().push({ role:'assistant', content:text, urgent: urg ? urg.l : null, at:new Date().toISOString() });
+  chatPersist(); render(); window.scrollTo(0, document.body.scrollHeight);
 }
 function respuestaLocal(q, urg){
   const P = preg(), c = contenido(P.w), me = yo(), nx = proximoHito();

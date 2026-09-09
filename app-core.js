@@ -21,6 +21,8 @@ function gaOf(dateIso){ const P = preg(); return diffDays(pd(dateIso), P.lmpEff)
 function relDias(n){ if(n === 0) return 'Hoy'; if(n === 1) return 'Mañana'; if(n === -1) return 'Ayer'; if(n > 1) return `Faltan ${n} días`; return `Hace ${-n} días`; }
 function fotoSrc(v){ return v || ''; }  // en prod se resuelve contra Storage
 function quitarFoto(v){}                 // en prod borra el archivo de Storage
+function chatMsgs(){ return S.chat; }     // en prod: conversación privada de cada persona
+function chatPersist(){ persist(); }
 function toast(msg){ const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2200); }
 
 // ====== ICONOS ======

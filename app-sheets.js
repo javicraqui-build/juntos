@@ -88,18 +88,21 @@ function openFPP(){
 function saveFPP(form){ const f = fd(form); S.pregnancy.eddOverride = f.edd; closeSheet(); commit(); toast('Fecha actualizada y hitos recalculados'); }
 
 // --- Síntomas ---
-function openSintomas(){
-  const t = iso(today()); const s = S.symptoms.find(x => x.date === t) || { date:t, values:{}, note:'' };
-  openSheet(`<h2>¿Cómo te sientes hoy?</h2><p class="sub">Marca solo lo que notes. Nada es obligatorio.</p>
-    <form onsubmit="event.preventDefault(); saveSintomas(this)">
+function openSintomas(dia){
+  const t = dia || iso(today()); const esHoy = t === iso(today()); const s = S.symptoms.find(x => x.date === t) || { date:t, values:{}, note:'' };
+  if (yo() !== 'mother') { openSheet(`<h2>Síntomas</h2><p class="sub">El registro de síntomas lo lleva ${esc(quien('mother'))}: es su cuerpo y su voz. Tú puedes leerlo para saber cómo está y llevarlo a la próxima cita.</p><div class="actions"><button class="btn ghost" onclick="closeSheet()">Cerrar</button></div>`); return; }
+  openSheet(`<h2>${esHoy ? '¿Cómo te sientes hoy?' : `¿Cómo te sentiste el ${fmtShort(t)}?`}</h2><p class="sub">Marca solo lo que notes. Nada es obligatorio.</p>
+    <div class="field"><label>Día</label><input type="date" value="${t}" max="${iso(today())}" onchange="openSintomas(this.value)"></div>
+    <form onsubmit="event.preventDefault(); saveSintomas(this, '${t}')">
       <div class="card" style="padding:4px 16px;margin-bottom:14px">${SINTOMAS.map(x => `<div class="sym"><label>${x.l}</label><div class="scale" data-k="${x.k}">${ESCALA.map((l,i) => `<button type="button" class="${(s.values[x.k]||0)===i?'on l'+i:''}" onclick="pickScale(this,${i})" aria-label="${l}">${i===0?'—':l.slice(0,3)}</button>`).join('')}<input type="hidden" name="${x.k}" value="${s.values[x.k]||0}"></div></div>`).join('')}</div>
       ${txt('Otros / notas', 'note', s.note, 'Algo más que quieras recordar o contar en la próxima cita')}
-      ${actions('Guardar')}
+      ${actions('Guardar', s.id ? `delSintomas('${s.id}')` : null)}
     </form>
     <p class="disclaimer">Este registro es para ti y para tu equipo médico. Si algo te preocupa o empeora, consulta sin esperar.</p>`);
 }
+function delSintomas(id){ S.symptoms = S.symptoms.filter(x => x.id !== id); closeSheet(); commit(); }
 function pickScale(btn, i){ const sc = btn.parentElement; sc.querySelectorAll('button').forEach(b => b.className = ''); btn.className = 'on l' + i; sc.querySelector('input').value = i; }
-function saveSintomas(form){ const f = fd(form); const t = iso(today()); let s = S.symptoms.find(x => x.date === t); if (!s) { s = { id: uid(), date:t, values:{}, note:'' }; S.symptoms.push(s); } SINTOMAS.forEach(x => s.values[x.k] = Number(f[x.k]||0)); s.note = f.note; closeSheet(); commit(); toast('Registrado'); }
+function saveSintomas(form, dia){ const f = fd(form); const t = dia || iso(today()); let s = S.symptoms.find(x => x.date === t); if (!s) { s = { id: uid(), date:t, values:{}, note:'' }; S.symptoms.push(s); } SINTOMAS.forEach(x => s.values[x.k] = Number(f[x.k]||0)); s.note = f.note; closeSheet(); commit(); toast('Registrado'); }
 
 // --- Hitos (evolución) ---
 function openHito(id){

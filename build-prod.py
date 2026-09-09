@@ -37,6 +37,8 @@ screens = rep(screens, """${sampleFn ? '' : (window.claude?.use ? 'Conectando…
                        """${AI_OK === false ? 'El asistente con IA todavía no está configurado: respondo con orientación general.' : ''}""")
 
 cfg = json.load(open(f'{P}/config.json'))
+import hashlib
+version = hashlib.sha1((css + content + core + screens + sheets + prod).encode()).hexdigest()[:10]
 html = f"""<!doctype html>
 <html lang="es">
 <head>
@@ -49,7 +51,8 @@ html = f"""<!doctype html>
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="juntos">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%235E4468'/%3E%3Ccircle cx='32' cy='34' r='12' fill='%23C6876A'/%3E%3C/svg%3E">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%235E4468'/%3E%3Ccircle cx='32' cy='34' r='12' fill='%23C6876A'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Figtree:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/app.css">
@@ -57,11 +60,12 @@ html = f"""<!doctype html>
 <body>
 <div id="app"></div>
 <script>window.JUNTOS_CONFIG = {json.dumps(cfg)};</script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.js"></script>
+<script src="/vendor/supabase-2.116.0.js"></script>
 <script src="/content.js"></script>
 <script src="/app.js"></script>
 <script src="/sheets.js"></script>
 <script src="/prod.js"></script>
+<script>if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('/sw.js?v={version}').catch(() => {{}}));</script>
 </body>
 </html>
 """
@@ -71,4 +75,5 @@ open(f'{P}/public/content.js', 'w').write(content)
 open(f'{P}/public/app.js', 'w').write(core + '\n' + screens)
 open(f'{P}/public/sheets.js', 'w').write(sheets)
 open(f'{P}/public/prod.js', 'w').write(prod)
+open(f'{P}/public/sw.js', 'w').write(open(f'{P}/src/sw.js').read().replace('__VERSION__', version))
 print('ok', len(html))

@@ -82,7 +82,7 @@ async function nuevaContrasena(password){
   if (error) { AUTH_MSG = errorAuth(error); render(); return; }
   RECOVERY = false; AUTH_MSG = ''; toast('Contraseña guardada'); if (SESSION) loadWorkspace(); else render();
 }
-async function logout(){ closeSheet(); await sb.auth.signOut(); SESSION = null; S = null; WS = null; L.role = null; saveLocal(); try { localStorage.removeItem('juntos.ws'); } catch(e){} render(); }
+async function logout(){ closeSheet(); await sb.auth.signOut(); SESSION = null; S = null; WS = null; CHAT = []; L.role = null; saveLocal(); try { localStorage.removeItem('juntos.ws'); } catch(e){} render(); }
 
 // --- carga del espacio y realtime ---
 async function loadWorkspace(){
@@ -147,7 +147,7 @@ function renderIfFree(){ if (!document.querySelector('.overlay') && !['INPUT','T
 function adoptWorkspace(w, role){
   if (Array.isArray(w)) w = w[0];
   WS = w; S = w.data; BASE = clone(w.data); L.role = role || null; if (S?.pregnancy) S.pregnancy.inviteCode = w.invite_code; saveLocal();
-  setLocal(); dbOn = true; subscribe(); render(); setTimeout(migrarFotos, 1500);
+  setLocal(); dbOn = true; subscribe(); render(); loadChat(); setTimeout(migrarFotos, 1500);
 }
 function applyRemote(row){
   const d = row?.data; if (!d || !d.pregnancy || !WS) return;
@@ -305,28 +305,42 @@ async function migrarFotos(){
 function quitarFoto(ref){ borrarFoto(ref); }
 async function borrarFoto(ref){ if (ref && ref.startsWith('foto:')) { try { await sb.storage.from('fotos').remove([ref.slice(5)]); } catch (e) {} } }
 
+// --- conversación privada con el asistente (tabla ai_chats, una fila por persona) ---
+let CHAT = [], CHAT_LOADED = false;
+function chatMsgs(){ return CHAT; }
+function chatPersist(){ if (!SESSION) return; sb.from('ai_chats').upsert({ user_id: SESSION.user.id, workspace_id: WS?.id || null, messages: CHAT.slice(-60) }).then(({ error }) => { if (error) console.warn('chat', error); }); }
+async function loadChat(){
+  CHAT = []; CHAT_LOADED = false; if (!SESSION) return;
+  const { data, error } = await sb.from('ai_chats').select('messages').eq('user_id', SESSION.user.id).maybeSingle();
+  if (error) console.warn('chat', error);
+  CHAT = (data?.messages || []); CHAT_LOADED = true;
+  // Conversaciones antiguas guardadas en el espacio compartido: se retiran del documento (eran visibles para los dos).
+  if (S && Array.isArray(S.chat) && S.chat.length) { S.chat = []; persist(); }
+  if (L.tab === 'preguntar') render();
+}
+
 // --- asistente: API propia ---
 async function preguntar(q){
   q = (q || '').trim(); if (!q) return;
   const urg = ALARMA.find(a => a.re.test(q));
-  S.chat.push({ role:'user', content:q, at:new Date().toISOString() });
-  persist(); render();
+  CHAT.push({ role:'user', content:q, at:new Date().toISOString() });
+  chatPersist(); render();
   const chat = $('#chat'); if (!chat) return;
   const box = document.createElement('div'); box.className = 'msg ai thinking'; box.textContent = 'Pensando…'; chat.appendChild(box); window.scrollTo(0, document.body.scrollHeight);
   if (urg) { const u = document.createElement('div'); u.innerHTML = urgentBox(urg.l); chat.insertBefore(u.firstChild, box); }
   let text = '';
   const { data: { session } } = await sb.auth.getSession();
-  if (!session) { S.chat.pop(); setLocal(); SESSION = null; toast('Tu sesión caducó. Vuelve a entrar.'); render(); return; }
+  if (!session) { CHAT.pop(); SESSION = null; toast('Tu sesión caducó. Vuelve a entrar.'); render(); return; }
   try {
-    const r = await fetch('/api/preguntar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + session.access_token }, body: JSON.stringify({ context: contextoIA(), history: S.chat.slice(-9, -1).map(m => ({ role: m.role, content: m.content })), question: q, urgent: urg ? urg.l : null }) });
+    const r = await fetch('/api/preguntar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + session.access_token }, body: JSON.stringify({ context: contextoIA(), history: CHAT.slice(-9, -1).map(m => ({ role: m.role, content: m.content })), question: q, urgent: urg ? urg.l : null }) });
     const j = await r.json().catch(() => ({}));
-    if (r.status === 401) { S.chat.pop(); setLocal(); await sb.auth.signOut(); SESSION = null; toast('Tu sesión caducó. Vuelve a entrar.'); render(); return; }
+    if (r.status === 401) { CHAT.pop(); await sb.auth.signOut(); SESSION = null; toast('Tu sesión caducó. Vuelve a entrar.'); render(); return; }
     if (r.status === 503 && j.error === 'no_key') { AI_OK = false; text = respuestaLocal(q, urg); }
     else if (!r.ok) { text = j.message || 'No he podido responder ahora. Inténtalo de nuevo en un momento.'; }
     else { AI_OK = true; text = j.text; }
   } catch (e) { text = 'No hay conexión ahora mismo. ' + respuestaLocal(q, urg); }
-  S.chat.push({ role:'assistant', content:text, urgent: urg ? urg.l : null, at:new Date().toISOString() });
-  commit(); window.scrollTo(0, document.body.scrollHeight);
+  CHAT.push({ role:'assistant', content:text, urgent: urg ? urg.l : null, at:new Date().toISOString() });
+  chatPersist(); render(); window.scrollTo(0, document.body.scrollHeight);
 }
 
 // --- arranque ---
