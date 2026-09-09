@@ -10,3 +10,14 @@ self.addEventListener('fetch', e => {
   e.respondWith(fetch(r).then(res => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(r, copy)); } return res; })
     .catch(() => caches.match(r).then(m => m || (r.mode === 'navigate' ? caches.match('/index.html') : undefined))));
 });
+
+// Avisos push
+self.addEventListener('push', e => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch (err) { d = { title:'juntos', body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'juntos', { body: d.body || '', icon:'/icons/icon-192.png', badge:'/icons/icon-192.png', tag: d.tag || undefined, data: { url: d.url || '/' } }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || '/', location.origin).href;
+  e.waitUntil(self.clients.matchAll({ type:'window', includeUncontrolled:true }).then(cs => { const c = cs.find(x => x.url.startsWith(location.origin)); if (c) { c.navigate(url); return c.focus(); } return self.clients.openWindow(url); }));
+});

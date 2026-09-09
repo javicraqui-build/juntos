@@ -53,6 +53,7 @@ function renderHoy(){
     </div>
   </section>
 
+  ${(() => { const items = paraHoy(); return items.length ? `<section class="section"><div class="section-head"><h2>Para hoy</h2></div><div class="card" style="padding:4px 18px">${items.map(x => `<div class="row clickable" onclick="${x.fn}"><div class="ic">${x.ic}</div><div class="body"><h4>${esc(x.txt)}</h4><p>${esc(x.sub)}</p></div></div>`).join('')}</div></section>` : ''; })()}
   ${P.w >= 37 ? `<section class="section"><div class="card warm" onclick="openHito('nacimiento')" role="button" tabindex="0"><span class="eyebrow">${P.remaining < 0 ? 'Pasó la fecha probable' : 'Ya a término'}</span><h3>¿Ya nació?</h3><p class="sub">Marca el nacimiento y la app pasa a acompañarlos en los primeros días.</p></div></section>` : ''}
   <section class="section"><div class="card">
     <div class="size"><div class="orb"><img src="/img/tamano/${c.img}.svg" alt="${esc(c.cmp)}" width="96" height="96"></div>
@@ -259,7 +260,7 @@ function renderPreguntar(){
     ? ['¿Qué debería estar haciendo yo como padre esta semana?', '¿Cómo puedo acompañarla mejor esta semana?', '¿Qué deberíamos preguntarle en la próxima cita?', '¿Cuándo tiene sentido contarle a la familia?', ...(S.pregnancy.maternalAge >= 35 ? [`¿Qué cambia porque ella tiene ${S.pregnancy.maternalAge} años?`] : ['¿Qué deberíamos preparar antes de la semana 20?'])]
     : [`¿Este síntoma es habitual en la semana ${P.w}?`, '¿Qué deberíamos preguntarle en la próxima cita?', '¿Cuándo conviene hacer el NIPT?', '¿Qué debería esperar de la próxima ecografía?', '¿Qué deberíamos preparar antes de la semana 20?'];
   const msgs = chatMsgs().slice(-30);
-  const body = msgs.length ? msgs.map(m => m.role === 'user' ? `<div class="msg user">${esc(m.content)}</div>` : `${m.urgent ? urgentBox(m.urgent) : ''}<div class="msg ai">${esc(m.content)}<span class="disc">Orientación general para ${semanaTxt(P.days).toLowerCase()}. No sustituye el consejo de tu equipo médico.</span></div>`).join('')
+  const body = msgs.length ? msgs.map((m, i) => m.role === 'user' ? `<div class="msg user">${esc(m.content)}</div>` : `${m.urgent ? urgentBox(m.urgent) : ''}<div class="msg ai">${esc(m.content)}<span class="disc">Orientación general para ${semanaTxt(P.days).toLowerCase()}. No sustituye el consejo de tu equipo médico.${i > 0 && msgs[i-1].role === 'user' ? ` <button class="link" style="font-size:12px;margin-left:6px" onclick="openGuardarPregunta(${i - 1 + Math.max(0, chatMsgs().length - 30)})">Guardar para la cita</button>` : ''}</span></div>`).join('')
     : `<div class="card accent"><span class="eyebrow">Asistente</span><h3>Conoce este embarazo</h3><p class="sub">Sé que están en la ${semanaTxt(P.days).toLowerCase()}, la fecha probable de parto, las citas y los resultados que han guardado. Pregunta con contexto, sin tener que explicarlo todo. Esta conversación es solo tuya: tu pareja no la ve.</p></div>`;
   return `${topbar('Preguntar')}
     <h1 class="h-page">Preguntar</h1><p class="sub" style="margin-bottom:12px">Respuestas calmadas y con contexto. ${sampleFn ? '' : (window.claude?.use ? 'Conectando…' : 'En esta vista, respuestas de orientación general.')}</p>
@@ -270,6 +271,11 @@ function renderPreguntar(){
 }
 function urgentBox(l){ return `<div class="alert-urgent"><strong>Esto puede necesitar atención ahora</strong>Mencionas ${esc(l)}. No esperes a la próxima cita: contacta con tu equipo médico o acude a urgencias. Si es grave, llama al <span class="tel">${esc(pais().emergencias)}</span>.</div>`; }
 function borrarChat(){ chatMsgs().length = 0; chatPersist(); render(); }
+function preguntarSobreCita(id){
+  const a = S.appointments.find(x => x.id === id); if (!a) return;
+  const q = `Tenemos ${a.title} el ${fmtLong(a.date)}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}${a.doctor ? ' con ' + a.doctor : ''}${a.clinic ? ' en ' + a.clinic : ''}. ${(a.questions || []).length ? 'Ya anotamos estas preguntas: ' + a.questions.join('; ') + '. ' : 'Todavía no anotamos preguntas. '}¿Qué más deberíamos preguntar en esa cita, según nuestra semana y lo que tenemos guardado?`;
+  closeSheet(); preguntarCon(q);
+}
 function preguntarCon(q){ L.tab = 'preguntar'; saveLocal(); render(); setTimeout(() => preguntar(q), 50); }
 
 function contextoIA(){

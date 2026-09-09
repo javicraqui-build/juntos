@@ -60,9 +60,24 @@ export default async function handler(req, res) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', ...(process.env.ANTHROPIC_WORKSPACE_ID ? { 'anthropic-workspace-id': process.env.ANTHROPIC_WORKSPACE_ID } : {}) },
-      body: JSON.stringify({ model: MODEL, max_tokens: 700, temperature: 0.4, system: REGLAS, messages })
+      body: JSON.stringify({ model: MODEL, max_tokens: 700, temperature: 0.4, system: REGLAS, messages, stream: true })
     });
-    const j = await r.json();
+    if (r.ok && r.body) {
+      // Streaming: reenviamos el texto a medida que llega (el cliente lo pinta en vivo)
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', 'x-juntos-stream': '1', 'x-juntos-model': MODEL });
+      const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n'); buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          try { const ev = JSON.parse(line.slice(5)); if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text) res.write(ev.delta.text); } catch {}
+        }
+      }
+      return res.end();
+    }
+    const j = await r.json().catch(() => ({}));
     if (!r.ok) {
       console.error('anthropic', r.status, JSON.stringify(j).slice(0, 500));
       const detail = j?.error?.message || '';
@@ -77,6 +92,8 @@ export default async function handler(req, res) {
     return res.status(200).json({ text, model: MODEL });
   } catch (e) {
     console.error(e);
+    if (res.headersSent) return res.end();
     return res.status(502).json({ error: 'upstream', message: 'No he podido responder ahora. Inténtalo de nuevo en un momento.' });
   }
 }
+export const config = { supportsResponseStreaming: true };

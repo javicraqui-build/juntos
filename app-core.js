@@ -140,6 +140,28 @@ function notificaciones(){
   return out;
 }
 
+// "Para hoy": lo concreto de hoy para quien mira, según su rol
+function paraHoy(){
+  const P = preg(), t = today(), me = yo(), out = [];
+  if (P.nacido) return out;
+  const ahora = new Date();
+  const citas = S.appointments.filter(a => !citaPasada(a)).map(a => ({ a, n: diffDays(pd(a.date), t) })).filter(x => x.n <= 1).sort((x, y) => x.a.date.localeCompare(y.a.date));
+  for (const { a, n } of citas) { const nq = (a.questions || []).length; out.push({ ic:I.calendar, txt:`${n === 0 ? 'Hoy' : 'Mañana'}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}: ${a.title}`, sub: nq ? `${nq} ${nq === 1 ? 'pregunta anotada' : 'preguntas anotadas'}` : 'Sin preguntas anotadas todavía', fn:`openCita('${a.id}')` }); }
+  const mias = S.tasks.filter(x => x.status !== 'hecha' && x.due && (x.owner === me || x.owner === 'both') && diffDays(pd(x.due), t) <= 0).sort((a, b) => a.due.localeCompare(b.due));
+  for (const x of mias.slice(0, 2)) { const atras = -diffDays(pd(x.due), t); out.push({ ic:I.list, txt:`${atras ? 'Atrasada' : 'Para hoy'}: ${x.title}`, sub: atras ? `Vencía hace ${atras} ${atras === 1 ? 'día' : 'días'}` : (x.owner === 'both' ? 'De los dos' : 'A tu cargo'), fn:`openTarea('${x.id}')` }); }
+  if (me === 'partner') {
+    const recientes = [iso(t), iso(addDays(t, -1))].map(d => S.symptoms.find(s => s.date === d)).filter(Boolean);
+    for (const s of recientes) {
+      const fuertes = SINTOMAS.filter(x => (s.values?.[x.k] || 0) >= 2);
+      if (fuertes.some(x => s.values[x.k] === 3) || fuertes.length >= 2) { out.push({ ic:I.mood, txt:`${quien('mother')} ${s.date === iso(t) ? 'hoy' : 'ayer'}: ${fuertes.map(x => `${x.l.toLowerCase()} (${ESCALA[s.values[x.k]].toLowerCase()})`).join(', ')}`, sub: s.note ? `"${s.note}"` : 'Pregúntale cómo está', fn:`go('salud'); subSalud('sintomas')` }); break; }
+    }
+  } else if (me === 'mother' && P.w >= 5 && !S.symptoms.some(s => s.date === iso(t)) && ahora.getHours() >= 12) {
+    out.push({ ic:I.mood, txt:'¿Cómo te sientes hoy?', sub:'Un minuto. Sirve para la próxima cita', fn:`openSintomas()` });
+  }
+  const hito = timeline().find(h => !h.done && !h.custom && !h.citaId && !h.emocional && h.date > t && diffDays(h.date, t) <= 10);
+  if (hito && !citas.length) out.push({ ic:I.timeline, txt:`En ${diffDays(hito.date, t)} días toca: ${hito.title}`, sub:'Si ya tienen fecha, créala como cita', fn:`openHito('${hito.id}')` });
+  return out.slice(0, 4);
+}
 function quien(role){ const n = S.pregnancy.names || {}; if (role === 'mother') return n.mother || 'Ella'; if (role === 'partner') return n.partner || 'Pareja'; if (role === 'both') return 'Los dos'; return '—'; }
 function yo(){ return L.role === 'partner' ? 'partner' : 'mother'; }
 function iniciales(role){ const n = quien(role); return n.split(' ').map(x => x[0]).join('').slice(0,2).toUpperCase(); }

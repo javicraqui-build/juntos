@@ -140,6 +140,28 @@ function notificaciones(){
   return out;
 }
 
+// "Para hoy": lo concreto de hoy para quien mira, según su rol
+function paraHoy(){
+  const P = preg(), t = today(), me = yo(), out = [];
+  if (P.nacido) return out;
+  const ahora = new Date();
+  const citas = S.appointments.filter(a => !citaPasada(a)).map(a => ({ a, n: diffDays(pd(a.date), t) })).filter(x => x.n <= 1).sort((x, y) => x.a.date.localeCompare(y.a.date));
+  for (const { a, n } of citas) { const nq = (a.questions || []).length; out.push({ ic:I.calendar, txt:`${n === 0 ? 'Hoy' : 'Mañana'}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}: ${a.title}`, sub: nq ? `${nq} ${nq === 1 ? 'pregunta anotada' : 'preguntas anotadas'}` : 'Sin preguntas anotadas todavía', fn:`openCita('${a.id}')` }); }
+  const mias = S.tasks.filter(x => x.status !== 'hecha' && x.due && (x.owner === me || x.owner === 'both') && diffDays(pd(x.due), t) <= 0).sort((a, b) => a.due.localeCompare(b.due));
+  for (const x of mias.slice(0, 2)) { const atras = -diffDays(pd(x.due), t); out.push({ ic:I.list, txt:`${atras ? 'Atrasada' : 'Para hoy'}: ${x.title}`, sub: atras ? `Vencía hace ${atras} ${atras === 1 ? 'día' : 'días'}` : (x.owner === 'both' ? 'De los dos' : 'A tu cargo'), fn:`openTarea('${x.id}')` }); }
+  if (me === 'partner') {
+    const recientes = [iso(t), iso(addDays(t, -1))].map(d => S.symptoms.find(s => s.date === d)).filter(Boolean);
+    for (const s of recientes) {
+      const fuertes = SINTOMAS.filter(x => (s.values?.[x.k] || 0) >= 2);
+      if (fuertes.some(x => s.values[x.k] === 3) || fuertes.length >= 2) { out.push({ ic:I.mood, txt:`${quien('mother')} ${s.date === iso(t) ? 'hoy' : 'ayer'}: ${fuertes.map(x => `${x.l.toLowerCase()} (${ESCALA[s.values[x.k]].toLowerCase()})`).join(', ')}`, sub: s.note ? `"${s.note}"` : 'Pregúntale cómo está', fn:`go('salud'); subSalud('sintomas')` }); break; }
+    }
+  } else if (me === 'mother' && P.w >= 5 && !S.symptoms.some(s => s.date === iso(t)) && ahora.getHours() >= 12) {
+    out.push({ ic:I.mood, txt:'¿Cómo te sientes hoy?', sub:'Un minuto. Sirve para la próxima cita', fn:`openSintomas()` });
+  }
+  const hito = timeline().find(h => !h.done && !h.custom && !h.citaId && !h.emocional && h.date > t && diffDays(h.date, t) <= 10);
+  if (hito && !citas.length) out.push({ ic:I.timeline, txt:`En ${diffDays(hito.date, t)} días toca: ${hito.title}`, sub:'Si ya tienen fecha, créala como cita', fn:`openHito('${hito.id}')` });
+  return out.slice(0, 4);
+}
 function quien(role){ const n = S.pregnancy.names || {}; if (role === 'mother') return n.mother || 'Ella'; if (role === 'partner') return n.partner || 'Pareja'; if (role === 'both') return 'Los dos'; return '—'; }
 function yo(){ return L.role === 'partner' ? 'partner' : 'mother'; }
 function iniciales(role){ const n = quien(role); return n.split(' ').map(x => x[0]).join('').slice(0,2).toUpperCase(); }
@@ -278,6 +300,7 @@ function renderHoy(){
     </div>
   </section>
 
+  ${(() => { const items = paraHoy(); return items.length ? `<section class="section"><div class="section-head"><h2>Para hoy</h2></div><div class="card" style="padding:4px 18px">${items.map(x => `<div class="row clickable" onclick="${x.fn}"><div class="ic">${x.ic}</div><div class="body"><h4>${esc(x.txt)}</h4><p>${esc(x.sub)}</p></div></div>`).join('')}</div></section>` : ''; })()}
   ${P.w >= 37 ? `<section class="section"><div class="card warm" onclick="openHito('nacimiento')" role="button" tabindex="0"><span class="eyebrow">${P.remaining < 0 ? 'Pasó la fecha probable' : 'Ya a término'}</span><h3>¿Ya nació?</h3><p class="sub">Marca el nacimiento y la app pasa a acompañarlos en los primeros días.</p></div></section>` : ''}
   <section class="section"><div class="card">
     <div class="size"><div class="orb"><img src="/img/tamano/${c.img}.svg" alt="${esc(c.cmp)}" width="96" height="96"></div>
@@ -484,7 +507,7 @@ function renderPreguntar(){
     ? ['¿Qué debería estar haciendo yo como padre esta semana?', '¿Cómo puedo acompañarla mejor esta semana?', '¿Qué deberíamos preguntarle en la próxima cita?', '¿Cuándo tiene sentido contarle a la familia?', ...(S.pregnancy.maternalAge >= 35 ? [`¿Qué cambia porque ella tiene ${S.pregnancy.maternalAge} años?`] : ['¿Qué deberíamos preparar antes de la semana 20?'])]
     : [`¿Este síntoma es habitual en la semana ${P.w}?`, '¿Qué deberíamos preguntarle en la próxima cita?', '¿Cuándo conviene hacer el NIPT?', '¿Qué debería esperar de la próxima ecografía?', '¿Qué deberíamos preparar antes de la semana 20?'];
   const msgs = chatMsgs().slice(-30);
-  const body = msgs.length ? msgs.map(m => m.role === 'user' ? `<div class="msg user">${esc(m.content)}</div>` : `${m.urgent ? urgentBox(m.urgent) : ''}<div class="msg ai">${esc(m.content)}<span class="disc">Orientación general para ${semanaTxt(P.days).toLowerCase()}. No sustituye el consejo de tu equipo médico.</span></div>`).join('')
+  const body = msgs.length ? msgs.map((m, i) => m.role === 'user' ? `<div class="msg user">${esc(m.content)}</div>` : `${m.urgent ? urgentBox(m.urgent) : ''}<div class="msg ai">${esc(m.content)}<span class="disc">Orientación general para ${semanaTxt(P.days).toLowerCase()}. No sustituye el consejo de tu equipo médico.${i > 0 && msgs[i-1].role === 'user' ? ` <button class="link" style="font-size:12px;margin-left:6px" onclick="openGuardarPregunta(${i - 1 + Math.max(0, chatMsgs().length - 30)})">Guardar para la cita</button>` : ''}</span></div>`).join('')
     : `<div class="card accent"><span class="eyebrow">Asistente</span><h3>Conoce este embarazo</h3><p class="sub">Sé que están en la ${semanaTxt(P.days).toLowerCase()}, la fecha probable de parto, las citas y los resultados que han guardado. Pregunta con contexto, sin tener que explicarlo todo. Esta conversación es solo tuya: tu pareja no la ve.</p></div>`;
   return `${topbar('Preguntar')}
     <h1 class="h-page">Preguntar</h1><p class="sub" style="margin-bottom:12px">Respuestas calmadas y con contexto. ${AI_OK === false ? 'El asistente con IA todavía no está configurado: respondo con orientación general.' : ''}</p>
@@ -495,6 +518,11 @@ function renderPreguntar(){
 }
 function urgentBox(l){ return `<div class="alert-urgent"><strong>Esto puede necesitar atención ahora</strong>Mencionas ${esc(l)}. No esperes a la próxima cita: contacta con tu equipo médico o acude a urgencias. Si es grave, llama al <span class="tel">${esc(pais().emergencias)}</span>.</div>`; }
 function borrarChat(){ chatMsgs().length = 0; chatPersist(); render(); }
+function preguntarSobreCita(id){
+  const a = S.appointments.find(x => x.id === id); if (!a) return;
+  const q = `Tenemos ${a.title} el ${fmtLong(a.date)}${fmtTime(a.date) ? ' a las ' + fmtTime(a.date) : ''}${a.doctor ? ' con ' + a.doctor : ''}${a.clinic ? ' en ' + a.clinic : ''}. ${(a.questions || []).length ? 'Ya anotamos estas preguntas: ' + a.questions.join('; ') + '. ' : 'Todavía no anotamos preguntas. '}¿Qué más deberíamos preguntar en esa cita, según nuestra semana y lo que tenemos guardado?`;
+  closeSheet(); preguntarCon(q);
+}
 function preguntarCon(q){ L.tab = 'preguntar'; saveLocal(); render(); setTimeout(() => preguntar(q), 50); }
 
 function contextoIA(){

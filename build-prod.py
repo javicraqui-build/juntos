@@ -31,7 +31,8 @@ sheets = rep(sheets, """Comparte esta página y el código. En el móvil de tu p
 sheets = rep(sheets, """<p class="sub" style="margin-top:4px">Los dos usan el mismo espacio. Comparte esta página con el código:</p>""",
                      """<p class="sub" style="margin-top:4px">Los dos usan el mismo espacio. Tu pareja entra con su correo y este código:</p>""")
 sheets = rep(sheets, """<div class="sync ${dbOn?'on':''}" id="sync"><i></i><span>${dbOn ? 'Sincronizado con tu pareja' : 'Guardado en este dispositivo'}</span></div></div>""",
-                     """<div class="sync on" id="sync"><i></i><span>Sincronizado en la nube</span></div><div class="actions" style="margin-top:10px"><button class="btn ghost sm" onclick="copiarInvitacion()">Copiar invitación</button><button class="link" style="font-size:13px" onclick="openUnirse()">Tengo un código de mi pareja</button></div></div>""")
+                     """<div class="sync on" id="sync"><i></i><span>Sincronizado en la nube</span></div><div class="actions" style="margin-top:10px"><button class="btn ghost sm" onclick="copiarInvitacion()">Copiar invitación</button><button class="link" style="font-size:13px" onclick="openUnirse()">Tengo un código de mi pareja</button></div></div>
+    <div class="card" style="margin-bottom:14px"><span class="eyebrow">Avisos</span><p class="sub" style="margin-top:4px">Cita de mañana, semana nueva, tareas a tu cargo. ${L.avisos === 'on' ? 'Activados en este dispositivo.' : 'Todavía no activados en este dispositivo.'}</p><div style="margin-top:10px"><button class="btn ghost sm" onclick="openAvisos()">${L.avisos === 'on' ? 'Gestionar avisos' : 'Activar avisos'}</button></div></div>""")
 # --- screens: texto del asistente
 screens = rep(screens, """${sampleFn ? '' : (window.claude?.use ? 'Conectando…' : 'En esta vista, respuestas de orientación general.')}""",
                        """${AI_OK === false ? 'El asistente con IA todavía no está configurado: respondo con orientación general.' : ''}""")
@@ -76,4 +77,7 @@ open(f'{P}/public/app.js', 'w').write(core + '\n' + screens)
 open(f'{P}/public/sheets.js', 'w').write(sheets)
 open(f'{P}/public/prod.js', 'w').write(prod)
 open(f'{P}/public/sw.js', 'w').write(open(f'{P}/src/sw.js').read().replace('__VERSION__', version))
+# contenido compartido con las funciones de servidor (avisos push)
+os.makedirs(f'{P}/lib', exist_ok=True)
+open(f'{P}/lib/contenido.mjs', 'w').write('// Generado por build-prod.py desde content.js. No editar a mano.\n' + content + '\nexport { SEMANAS, HITOS_BASE, PAISES, SINTOMAS, ESCALA };\n')
 print('ok', len(html))

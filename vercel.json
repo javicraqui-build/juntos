@@ -34,6 +34,19 @@
   "functions": {
     "api/preguntar.js": {
       "maxDuration": 30
+    },
+    "api/notificar.js": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/notificar",
+      "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/notificar",
+      "schedule": "0 11 * * *"
+    }
+  ]
 }

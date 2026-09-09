@@ -84,15 +84,21 @@ async function nuevaContrasena(password){
 }
 async function logout(){ closeSheet(); await sb.auth.signOut(); SESSION = null; S = null; WS = null; CHAT = []; L.role = null; saveLocal(); try { localStorage.removeItem('juntos.ws'); } catch(e){} render(); }
 
-// --- carga del espacio y realtime ---
+// --- carga del espacio: workspaces.pregnancy + una fila por ítem en entries ---
+const COLS = ['appointments','tests','ultrasounds','symptoms','memories','names','family','tasks','customMilestones'];
+const clone = o => JSON.parse(JSON.stringify(o));
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+let BASE = null, PENDING_RENDER = false, PERSISTING = false, PERSIST_AGAIN = false;
+function setLocal(){ try { localStorage.setItem('juntos.ws', JSON.stringify(S)); } catch(e){} }
+function renderIfFree(){ if (!document.querySelector('.overlay') && !['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)) { PENDING_RENDER = false; render(); } else PENDING_RENDER = true; }
 async function loadWorkspace(){
-  const { data, error } = await sb.from('workspace_members').select('role, workspaces(*)').eq('user_id', SESSION.user.id).order('joined_at', { ascending:false }).limit(1);
+  const { data, error } = await sb.from('workspace_members').select('role, workspaces(id, invite_code, pregnancy, demo, updated_at)').eq('user_id', SESSION.user.id).order('joined_at', { ascending:false }).limit(1);
   if (error) { console.warn(error); }
   const row = data && data[0];
   if (row && row.workspaces) {
     const w = Array.isArray(row.workspaces) ? row.workspaces[0] : row.workspaces;
     if (L.pendingCode && L.pendingCode === w.invite_code) { L.pendingCode = null; saveLocal(); }
-    adoptWorkspace(w, row.role);
+    await adoptWorkspace(w, row.role);
     if (L.pendingCode) setTimeout(() => openUnirse(), 300);
   }
   else {
@@ -101,85 +107,101 @@ async function loadWorkspace(){
     render();
   }
 }
-// BASE = última versión del documento confirmada por el servidor. Sirve para fusionar a tres vías
-// (base, mío, remoto) y que dos personas editando a la vez no se pisen.
-let BASE = null, PENDING_RENDER = false, PERSISTING = false, PERSIST_AGAIN = false;
-const COLS = ['appointments','tests','ultrasounds','symptoms','memories','names','family','tasks','customMilestones','chat'];
-const clone = o => JSON.parse(JSON.stringify(o));
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-function mergeList(base, mine, theirs){
-  base = base || []; mine = mine || []; theirs = theirs || [];
-  const B = new Map(base.map(x => [x.id, x])), M = new Map(mine.map(x => [x.id, x])), T = new Map(theirs.map(x => [x.id, x]));
-  const out = []; const seen = new Set();
-  const pick = id => {
-    const b = B.get(id), m = M.get(id), t = T.get(id);
-    if (m && t) return same(m, b) ? t : m;           // los dos lo tienen: gana quien lo cambió (empate: el mío)
-    if (m && !t) return b && same(m, b) ? null : m;  // ellos lo borraron y yo no lo toqué → borrado; si lo cambié, lo conservo
-    if (!m && t) return b && same(t, b) ? null : t;  // yo lo borré y ellos no lo tocaron → borrado; si lo cambiaron, se conserva
-    return null;
-  };
-  for (const x of [...mine, ...theirs]) { if (seen.has(x.id)) continue; seen.add(x.id); const v = pick(x.id); if (v) out.push(v); }
-  return out;
+// Monta el documento en memoria (misma forma que siempre usó la app) a partir de las filas
+function armarDoc(w, rows){
+  const D = Object.assign(emptyWorkspace(), { pregnancy: Object.assign({}, w.pregnancy || {}), demo: !!w.demo, milestones: {} });
+  COLS.forEach(c => D[c] = []);
+  D.chat = [];
+  for (const r of rows) {
+    if (r.collection === 'milestones') D.milestones[r.id] = r.data;
+    else if (D[r.collection]) D[r.collection].push(Object.assign({ id: r.id }, r.data));
+  }
+  D.symptoms.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  D.pregnancy.inviteCode = w.invite_code;
+  return D;
 }
-function mergeMap(base, mine, theirs){
-  base = base || {}; mine = mine || {}; theirs = theirs || {};
-  const out = {};
-  for (const k of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
-    const b = base[k], m = mine[k], t = theirs[k];
-    if (k in mine && k in theirs) out[k] = same(m, b) ? t : m;
-    else if (k in mine) { if (!(k in base) || !same(m, b)) out[k] = m; }
-    else { if (!(k in base) || !same(t, b)) out[k] = t; }
+async function cargarFilas(wsId){
+  const out = []; let from = 0;
+  while (true) {
+    const { data, error } = await sb.from('entries').select('collection, id, data').eq('workspace_id', wsId).range(from, from + 999);
+    if (error) { console.warn(error); toast('No se pudieron cargar los datos. Revisa la conexión.'); break; }
+    out.push(...(data || [])); if (!data || data.length < 1000) break; from += 1000;
   }
   return out;
 }
-function merge3(base, mine, theirs){
-  if (!base) return theirs;                      // sin base no podemos razonar: manda el servidor
-  const out = Object.assign({}, theirs, mine);
-  out.pregnancy = mergeMap(base.pregnancy, mine.pregnancy, theirs.pregnancy);
-  out.milestones = mergeMap(base.milestones, mine.milestones, theirs.milestones);
-  for (const c of COLS) out[c] = mergeList(base[c], mine[c], theirs[c]);
-  out.chat.sort((a, b) => (a.at || '').localeCompare(b.at || ''));
-  out.updatedAt = [mine.updatedAt, theirs.updatedAt].filter(Boolean).sort().pop() || null;
-  return out;
-}
-function setLocal(){ try { localStorage.setItem('juntos.ws', JSON.stringify(S)); } catch(e){} }
-function renderIfFree(){ if (!document.querySelector('.overlay') && !['INPUT','TEXTAREA'].includes(document.activeElement?.tagName)) { PENDING_RENDER = false; render(); } else PENDING_RENDER = true; }
-function adoptWorkspace(w, role){
+async function adoptWorkspace(w, role){
   if (Array.isArray(w)) w = w[0];
-  WS = w; S = w.data; BASE = clone(w.data); L.role = role || null; if (S?.pregnancy) S.pregnancy.inviteCode = w.invite_code; saveLocal();
+  WS = w; L.role = role || null; saveLocal();
+  const rows = await cargarFilas(w.id);
+  S = armarDoc(w, rows); BASE = clone(S);
   setLocal(); dbOn = true; subscribe(); render(); loadChat(); setTimeout(migrarFotos, 1500);
 }
-function applyRemote(row){
-  const d = row?.data; if (!d || !d.pregnancy || !WS) return;
-  if (row.updated_at && row.updated_at === WS.updated_at) return;   // eco de mi propio guardado
-  S = merge3(BASE, S, d); BASE = clone(d); WS.updated_at = row.updated_at || WS.updated_at;
-  S.pregnancy.inviteCode = WS.invite_code; setLocal(); renderIfFree();
-  if (!same(S, d)) persist();                                         // tenía cambios míos que el servidor no tiene
-}
+// Realtime: cada cambio llega como la fila afectada
 function subscribe(){
   if (CHAN) { sb.removeChannel(CHAN); CHAN = null; }
   if (!WS) return;
-  CHAN = sb.channel('ws-' + WS.id).on('postgres_changes', { event:'UPDATE', schema:'public', table:'workspaces', filter:`id=eq.${WS.id}` }, p => applyRemote(p.new)).subscribe();
+  CHAN = sb.channel('ws-' + WS.id)
+    .on('postgres_changes', { event:'*', schema:'public', table:'entries', filter:`workspace_id=eq.${WS.id}` }, p => aplicarFila(p))
+    .on('postgres_changes', { event:'UPDATE', schema:'public', table:'workspaces', filter:`id=eq.${WS.id}` }, p => {
+      const preg = p.new?.pregnancy; if (!preg || !S) return;
+      const mine = Object.assign({}, preg, { inviteCode: WS.invite_code });
+      if (same(mine, S.pregnancy)) return;
+      if (same(S.pregnancy, BASE.pregnancy)) { S.pregnancy = mine; BASE.pregnancy = clone(mine); setLocal(); renderIfFree(); }
+      else { BASE.pregnancy = clone(mine); }   // yo tengo cambios sin guardar aún: se guardarán encima
+    })
+    .subscribe();
 }
+function aplicarFila(p){
+  if (!S) return;
+  const r = p.eventType === 'DELETE' ? p.old : p.new; if (!r) return;
+  const c = r.collection, id = r.id;
+  if (c === 'milestones') {
+    if (p.eventType === 'DELETE') { delete S.milestones[id]; delete BASE.milestones[id]; }
+    else { if (same(S.milestones[id], r.data)) return; S.milestones[id] = r.data; BASE.milestones[id] = clone(r.data); }
+  } else if (S[c]) {
+    if (p.eventType === 'DELETE') { S[c] = S[c].filter(x => x.id !== id); BASE[c] = BASE[c].filter(x => x.id !== id); }
+    else {
+      const item = Object.assign({ id }, r.data);
+      const i = S[c].findIndex(x => x.id === id);
+      if (i >= 0 && same(S[c][i], item)) return;
+      if (i >= 0) S[c][i] = item; else S[c].push(item);
+      const j = BASE[c].findIndex(x => x.id === id); if (j >= 0) BASE[c][j] = clone(item); else BASE[c].push(clone(item));
+      if (c === 'symptoms') S.symptoms.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+    }
+  } else return;
+  setLocal(); renderIfFree();
+}
+// Guardar: se comparan S y BASE y solo viajan las filas que cambiaron
 function persist(){
-  S.updatedAt = new Date().toISOString(); setLocal();
+  if (S) { S.updatedAt = new Date().toISOString(); setLocal(); }
   if (!WS) return;
   if (PERSISTING) { PERSIST_AGAIN = true; return; }
   flush();
 }
+function difs(){
+  const ups = [], dels = [];
+  for (const c of COLS) {
+    const cur = S[c] || [], base = BASE[c] || [];
+    const bm = new Map(base.map(x => [x.id, x]));
+    for (const x of cur) { const b = bm.get(x.id); if (!b || !same(b, x)) { const { id, ...data } = x; ups.push({ workspace_id: WS.id, collection: c, id, data }); } bm.delete(x.id); }
+    for (const id of bm.keys()) dels.push({ collection: c, id });
+  }
+  const mk = S.milestones || {}, bk = BASE.milestones || {};
+  for (const k of Object.keys(mk)) if (!same(mk[k], bk[k])) ups.push({ workspace_id: WS.id, collection: 'milestones', id: k, data: mk[k] });
+  for (const k of Object.keys(bk)) if (!(k in mk)) dels.push({ collection: 'milestones', id: k });
+  const pregChanged = !same(S.pregnancy, BASE.pregnancy);
+  return { ups, dels, pregChanged };
+}
 async function flush(){
   PERSISTING = true;
   try {
-    for (let i = 0; i < 4; i++) {
-      const snapshot = clone(S);
-      const { data, error } = await sb.from('workspaces').update({ data: snapshot }).eq('id', WS.id).eq('updated_at', WS.updated_at).select('updated_at');
-      if (error) { console.warn(error); toast('No se pudo guardar. Revisa la conexión.'); break; }
-      if (data && data.length) { WS.updated_at = data[0].updated_at; BASE = snapshot; break; }
-      // Conflicto: alguien guardó antes. Releo, fusiono y reintento.
-      const r = await sb.from('workspaces').select('data, updated_at').eq('id', WS.id).single();
-      if (r.error || !r.data) { toast('No se pudo guardar. Revisa la conexión.'); break; }
-      S = merge3(BASE, S, r.data.data); BASE = clone(r.data.data); WS.updated_at = r.data.updated_at; S.pregnancy.inviteCode = WS.invite_code; setLocal(); renderIfFree();
-    }
+    const { ups, dels, pregChanged } = difs();
+    const snap = clone(S);
+    let fallo = false;
+    if (ups.length) { const { error } = await sb.from('entries').upsert(ups, { onConflict: 'workspace_id,collection,id' }); if (error) { console.warn(error); fallo = true; } }
+    for (const d of dels) { const { error } = await sb.from('entries').delete().eq('workspace_id', WS.id).eq('collection', d.collection).eq('id', d.id); if (error) { console.warn(error); fallo = true; } }
+    if (pregChanged) { const { inviteCode, ...preg } = snap.pregnancy; const { error } = await sb.from('workspaces').update({ pregnancy: preg, demo: !!snap.demo }).eq('id', WS.id); if (error) { console.warn(error); fallo = true; } }
+    if (fallo) toast('No se pudo guardar todo. Revisa la conexión.'); else BASE = snap;
   } finally { PERSISTING = false; if (PERSIST_AGAIN) { PERSIST_AGAIN = false; flush(); } }
 }
 
@@ -192,20 +214,20 @@ async function crearEspacio(){
   const role = OB.role === 'partner' ? 'partner' : 'mother';
   const { data, error } = await sb.rpc('create_workspace', { p_data: W, p_role: role });
   if (error) { alert('No se pudo crear el espacio: ' + error.message); return; }
-  adoptWorkspace(data, OB.role === 'both' ? null : role); OB.step = 5; render();
+  await adoptWorkspace(data, OB.role === 'both' ? null : role); OB.step = 5; render();
 }
 async function crearDemo(){
   const W = demoWorkspace(); W.updatedAt = new Date().toISOString();
   const { data, error } = await sb.rpc('create_workspace', { p_data: W, p_role: 'mother' });
   if (error) { alert('No se pudo crear el espacio: ' + error.message); return; }
-  adoptWorkspace(data, null); OB.step = 0; render();
+  await adoptWorkspace(data, null); OB.step = 0; render();
 }
 async function unirse(){
   const code = (OB.code || '').trim().toUpperCase(); if (!code) { alert('Escribe el código.'); return; }
   const role = OB.joinRole || 'partner';
   const { data, error } = await sb.rpc('join_workspace', { p_code: code, p_role: role });
   if (error) { alert(error.message.includes('Código') ? 'No encontramos un espacio con ese código. Pide a tu pareja que lo revise.' : 'No se pudo entrar: ' + error.message); return; }
-  L.pendingCode = null; OB.step = 0; adoptWorkspace(data, role); toast('Ya están en el mismo espacio');
+  L.pendingCode = null; OB.step = 0; await adoptWorkspace(data, role); toast('Ya están en el mismo espacio');
 }
 async function setRole(role){
   if (!WS) return; L.role = role; saveLocal();
@@ -245,7 +267,7 @@ async function unirseDesdePerfil(code, role){
   if (chk.error) { alert(chk.error.message.includes('Código') ? 'No encontramos un espacio con ese código. Pide a tu pareja que lo revise.' : 'No se pudo entrar: ' + chk.error.message); return; }
   // Ya somos miembros del nuevo espacio; ahora dejamos el anterior.
   if (WS && WS.id !== (Array.isArray(chk.data) ? chk.data[0] : chk.data).id) { await sb.rpc('leave_workspace', { p_ws: WS.id }); }
-  L.pendingCode = null; OB.step = 0; closeSheet(); adoptWorkspace(chk.data, role); toast('Ya están en el mismo espacio');
+  L.pendingCode = null; OB.step = 0; closeSheet(); await adoptWorkspace(chk.data, role); toast('Ya están en el mismo espacio');
 }
 function invitacionTxt(){ return `Estamos esperando un bebé y llevamos el embarazo juntos en esta app. Crea tu cuenta con tu correo y usa el código ${S.pregnancy.inviteCode}: ${location.origin}/?invitar=${S.pregnancy.inviteCode}`; }
 
@@ -323,9 +345,49 @@ async function loadChat(){
   const { data, error } = await sb.from('ai_chats').select('messages').eq('user_id', SESSION.user.id).maybeSingle();
   if (error) console.warn('chat', error);
   CHAT = (data?.messages || []); CHAT_LOADED = true;
-  // Conversaciones antiguas guardadas en el espacio compartido: se retiran del documento (eran visibles para los dos).
-  if (S && Array.isArray(S.chat) && S.chat.length) { S.chat = []; persist(); }
   if (L.tab === 'preguntar') render();
+}
+
+// --- avisos push (Web Push; en iPhone requiere la app añadida a la pantalla de inicio) ---
+function pushSoportado(){ return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+function b64ToU8(s){ const p = '='.repeat((4 - s.length % 4) % 4); const b = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(b, c => c.charCodeAt(0)); }
+async function estadoAvisos(){
+  if (!pushSoportado()) return 'no';
+  if (Notification.permission === 'denied') return 'bloqueado';
+  try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); return sub ? 'on' : 'off'; } catch (e) { return 'off'; }
+}
+async function activarAvisos(){
+  if (!pushSoportado()) { toast('Este navegador no admite avisos. En iPhone, añade la app a la pantalla de inicio.'); return; }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') { toast('Sin permiso para avisar. Puedes cambiarlo en los ajustes del navegador.'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey: b64ToU8(window.JUNTOS_CONFIG.vapidPublicKey) });
+    const j = sub.toJSON();
+    const { error } = await sb.from('push_subs').upsert({ endpoint: j.endpoint, user_id: SESSION.user.id, workspace_id: WS?.id || null, keys: j.keys, ua: navigator.userAgent.slice(0, 200) });
+    if (error) throw error;
+    L.avisos = 'on'; saveLocal(); toast('Avisos activados en este dispositivo'); closeSheet(); render();
+  } catch (e) { console.warn(e); toast('No se pudieron activar los avisos: ' + (e?.message || 'error')); }
+}
+async function desactivarAvisos(){
+  try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) { await sb.from('push_subs').delete().eq('endpoint', sub.endpoint); await sub.unsubscribe(); } } catch (e) { console.warn(e); }
+  L.avisos = 'off'; saveLocal(); toast('Avisos desactivados en este dispositivo'); closeSheet(); render();
+}
+async function probarAvisos(){
+  const { data: { session } } = await sb.auth.getSession(); if (!session) return;
+  const r = await fetch('/api/notificar', { method:'POST', headers:{ 'Authorization': 'Bearer ' + session.access_token, 'Content-Type':'application/json' }, body:'{"test":true}' });
+  const j = await r.json().catch(() => ({}));
+  toast(r.ok ? (j.sent ? 'Aviso de prueba enviado' : (j.message || 'No hay dispositivos con avisos')) : (j.message || 'No se pudo enviar el aviso de prueba'));
+}
+function openAvisos(){
+  estadoAvisos().then(st => {
+    openSheet(`<h2>Avisos</h2><p class="sub">Pocos y útiles: la cita de mañana con las preguntas que llevan, el arranque de cada semana, una tarea a tu cargo que vence${L.role === 'partner' ? ', y si ella tuvo un mal día para que le preguntes' : ''}. Llegan por la mañana.</p>
+      ${st === 'no' ? `<div class="card soft"><p class="sub">Este navegador no admite avisos.${/iPhone|iPad/.test(navigator.userAgent) ? ' En iPhone: compartir → "Añadir a pantalla de inicio", y activa los avisos desde la app instalada.' : ''}</p></div>`
+      : st === 'bloqueado' ? `<div class="card soft"><p class="sub">Los avisos están bloqueados para esta web en el navegador. Actívalos desde los ajustes del sitio y vuelve aquí.</p></div>`
+      : st === 'on' ? `<div class="card accent"><span class="eyebrow">Activados en este dispositivo</span><div class="actions" style="margin-top:10px"><button class="btn ghost sm" onclick="desactivarAvisos()">Desactivar</button><button class="btn soft sm" onclick="probarAvisos()">Enviar uno de prueba</button></div></div>`
+      : `<button class="btn block" onclick="activarAvisos()">Activar avisos en este dispositivo</button>`}
+      <div class="actions" style="margin-top:14px"><button class="btn ghost" onclick="closeSheet()">Cerrar</button></div>`);
+  });
 }
 
 // --- asistente: API propia ---
@@ -342,12 +404,20 @@ async function preguntar(q){
   if (!session) { CHAT.pop(); SESSION = null; toast('Tu sesión caducó. Vuelve a entrar.'); render(); return; }
   try {
     const r = await fetch('/api/preguntar', { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization': 'Bearer ' + session.access_token }, body: JSON.stringify({ context: contextoIA(), history: CHAT.slice(-9, -1).map(m => ({ role: m.role, content: m.content })), question: q, urgent: urg ? urg.l : null }) });
-    const j = await r.json().catch(() => ({}));
-    if (r.status === 401) { CHAT.pop(); await sb.auth.signOut(); SESSION = null; toast('Tu sesión caducó. Vuelve a entrar.'); render(); return; }
-    if (r.status === 503 && j.error === 'no_key') { AI_OK = false; text = respuestaLocal(q, urg); }
-    else if (!r.ok) { text = j.message || 'No he podido responder ahora. Inténtalo de nuevo en un momento.'; }
-    else { AI_OK = true; text = j.text; }
-  } catch (e) { text = 'No hay conexión ahora mismo. ' + respuestaLocal(q, urg); }
+    if (r.ok && r.headers.get('x-juntos-stream') === '1' && r.body) {
+      // Respuesta en vivo: se pinta a medida que llega
+      AI_OK = true; box.classList.remove('thinking'); box.textContent = '';
+      const reader = r.body.getReader(); const dec = new TextDecoder();
+      while (true) { const { value, done } = await reader.read(); if (done) break; text += dec.decode(value, { stream:true }); box.textContent = text; window.scrollTo(0, document.body.scrollHeight); }
+      text = text.trim() || 'No he podido responder ahora. Inténtalo de nuevo en un momento.';
+    } else {
+      const j = await r.json().catch(() => ({}));
+      if (r.status === 401) { CHAT.pop(); await sb.auth.signOut(); SESSION = null; toast('Tu sesión caducó. Vuelve a entrar.'); render(); return; }
+      if (r.status === 503 && j.error === 'no_key') { AI_OK = false; text = respuestaLocal(q, urg); }
+      else if (!r.ok) { text = j.message || 'No he podido responder ahora. Inténtalo de nuevo en un momento.'; }
+      else { AI_OK = true; text = j.text; }
+    }
+  } catch (e) { text = text ? text + ' […] (se cortó la conexión)' : 'No hay conexión ahora mismo. ' + respuestaLocal(q, urg); }
   CHAT.push({ role:'assistant', content:text, urgent: urg ? urg.l : null, at:new Date().toISOString() });
   chatPersist(); render(); window.scrollTo(0, document.body.scrollHeight);
 }
@@ -356,6 +426,8 @@ async function preguntar(q){
 async function boot(){
   const u = new URL(location.href); const inv = u.searchParams.get('invitar');
   if (inv) { L.pendingCode = inv.toUpperCase(); saveLocal(); history.replaceState(null, '', '/'); }
+  const tab = u.searchParams.get('tab');
+  if (tab) { L.tab = tab; L.sub = L.sub || {}; if (u.searchParams.get('sub')) L.sub.salud = u.searchParams.get('sub'); if (u.searchParams.get('us')) L.sub.us = u.searchParams.get('us'); saveLocal(); history.replaceState(null, '', '/'); }
   render();
   const { data: { session } } = await sb.auth.getSession();
   SESSION = session; AUTH_READY = true;

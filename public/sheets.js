@@ -53,7 +53,7 @@ function actions(saveLabel, delFn){ return `<div class="actions">${delFn ? delBt
 
 // --- Citas ---
 function openCita(id, pre){
-  const a = S.appointments.find(x => x.id === id) || Object.assign({ title:'', doctor:'', specialty:'', clinic:'', location:'', date: iso(addDays(today(), 7)) + 'T10:00', notes:'', questions:[], done:false, milestone:'' }, pre ? { title: pre.title || '', date: (pre.date || iso(addDays(today(), 7))) + 'T10:00', milestone: pre.milestone || '' } : {});
+  const a = S.appointments.find(x => x.id === id) || Object.assign({ title:'', doctor:'', specialty:'', clinic:'', location:'', date: iso(addDays(today(), 7)) + 'T10:00', notes:'', questions:[], done:false, milestone:'' }, pre ? { title: pre.title || '', date: (pre.date || iso(addDays(today(), 7))) + 'T10:00', milestone: pre.milestone || '', questions: pre.questions || [] } : {});
   openSheet(`<h2>${id ? 'Cita' : 'Nueva cita'}</h2><p class="sub">${id ? cap(fmtLong(a.date)) + (fmtTime(a.date) ? ' · ' + fmtTime(a.date) : '') + ' · ' + semanaTxt(Math.max(0,gaOf(a.date))) + (citaPasada(a) ? ' · <span class="chip sage" style="padding:2px 8px">ya fue</span>' : '') : 'Guarda la cita con las preguntas que quieran hacer. Pasa a "anteriores" sola cuando llegue la fecha y hora.'}</p>
     <form onsubmit="event.preventDefault(); saveCita('${id||''}', this)">
       ${fld('Título', 'title', 'text', a.title, 'required placeholder="Ecografía del primer trimestre"')}
@@ -61,6 +61,7 @@ function openCita(id, pre){
       <div class="field-row">${fld('Médico/a', 'doctor', 'text', a.doctor)}${fld('Especialidad', 'specialty', 'text', a.specialty)}</div>
       <div class="field-row">${fld('Clínica', 'clinic', 'text', a.clinic)}${fld('Ubicación', 'location', 'text', a.location)}</div>
       ${txt('Preguntas para hacer (una por línea)', 'questions', (a.questions||[]).join('\n'), '¿Se confirma la fecha probable de parto?')}
+      ${id && !citaPasada(a) ? `<div style="margin:-6px 0 14px"><button type="button" class="link" onclick="preguntarSobreCita('${id}')">¿Qué más deberíamos preguntar? · preguntar al asistente</button></div>` : ''}
       ${txt(citaPasada(a) ? 'Qué nos dijeron' : 'Notas', 'notes', a.notes, 'Qué nos dijeron, qué toca después…')}
       ${sel('Hito de la evolución que cubre esta cita', 'milestone', [['','Ninguno'], ...HITOS_BASE.filter(h => ['consulta1','eco1','nipt','eco12','eco20','intrauterino','latido','sexo'].includes(h.key)).map(h => [h.key, h.title])], a.milestone || '')}
       ${actions('Guardar', id ? `delCita('${id}')` : null)}
@@ -68,6 +69,24 @@ function openCita(id, pre){
 }
 function saveCita(id, form){ const f = fd(form); const a = getOrNew(S.appointments, id); Object.assign(a, { title:f.title, doctor:f.doctor, specialty:f.specialty, clinic:f.clinic, location:f.location, date: f.date + 'T' + (f.time || '09:00'), questions: f.questions.split('\n').map(s => s.trim()).filter(Boolean), notes:f.notes, milestone: f.milestone || '' }); delete a.done; if (a.milestone) { S.milestones[a.milestone] = Object.assign(S.milestones[a.milestone] || {}, { done: citaPasada(a), date: f.date }); } closeSheet(); commit(); toast(id ? 'Cita actualizada' : 'Cita guardada'); }
 function delCita(id){ S.appointments = S.appointments.filter(x => x.id !== id); closeSheet(); commit(); }
+
+// Guardar una pregunta hecha al asistente en una cita
+function openGuardarPregunta(idx){
+  const m = chatMsgs()[idx]; if (!m) return;
+  const prox = S.appointments.filter(a => !citaPasada(a)).sort((a, b) => a.date.localeCompare(b.date));
+  openSheet(`<h2>Guardar para la cita</h2><p class="sub">La pregunta queda anotada en la cita para no olvidarla.</p>
+    <form onsubmit="event.preventDefault(); guardarPregunta(this)">
+      ${txt('Pregunta', 'q', m.content.replace(/\s+/g, ' ').trim().slice(0, 200), '')}
+      ${sel('Cita', 'cita', [...prox.map(a => [a.id, `${a.title} · ${cap(fmtShort(a.date))}`]), ['__nueva', 'Nueva cita…']], prox[0]?.id || '__nueva')}
+      <div class="actions"><button type="button" class="btn ghost" onclick="closeSheet()">Cancelar</button><button type="submit" class="btn">Guardar</button></div>
+    </form>`);
+}
+function guardarPregunta(form){
+  const f = fd(form); const q = (f.q || '').trim(); if (!q) return;
+  if (f.cita === '__nueva') { closeSheet(); openCita(null, { questions:[q] }); return; }
+  const a = S.appointments.find(x => x.id === f.cita); if (!a) return;
+  a.questions = [...(a.questions || []), q]; closeSheet(); commit(); toast(`Pregunta guardada en ${a.title}`);
+}
 
 // --- Análisis ---
 function openAnalisis(id){
@@ -247,6 +266,7 @@ function openPerfil(){
   const p = S.pregnancy, P = preg();
   openSheet(`<h2>${esc(quien('mother'))} y ${esc(quien('partner'))}</h2><p class="sub">Estás usando la app como <b>${esc(quien(yo()))}</b>. <button class="link" onclick="L.role=null; saveLocal(); closeSheet(); render()">Cambiar</button></p>
     <div class="card" style="margin-bottom:14px"><span class="eyebrow">Compartir con tu pareja</span><p class="sub" style="margin-top:4px">Los dos usan el mismo espacio. Tu pareja entra con su correo y este código:</p><div class="code">${esc(p.inviteCode)}</div><div class="sync on" id="sync"><i></i><span>Sincronizado en la nube</span></div><div class="actions" style="margin-top:10px"><button class="btn ghost sm" onclick="copiarInvitacion()">Copiar invitación</button><button class="link" style="font-size:13px" onclick="openUnirse()">Tengo un código de mi pareja</button></div></div>
+    <div class="card" style="margin-bottom:14px"><span class="eyebrow">Avisos</span><p class="sub" style="margin-top:4px">Cita de mañana, semana nueva, tareas a tu cargo. ${L.avisos === 'on' ? 'Activados en este dispositivo.' : 'Todavía no activados en este dispositivo.'}</p><div style="margin-top:10px"><button class="btn ghost sm" onclick="openAvisos()">${L.avisos === 'on' ? 'Gestionar avisos' : 'Activar avisos'}</button></div></div>
     <form onsubmit="event.preventDefault(); savePerfil(this)">
       <div class="field-row">${fld('Nombre de ella', 'mother', 'text', p.names?.mother)}${fld('Nombre de la pareja', 'partner', 'text', p.names?.partner)}</div>
       ${fld('Primer día de la última menstruación', 'lmp', 'date', p.lmp, 'required')}

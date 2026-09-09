@@ -38,7 +38,15 @@ Si editas la app, edita esas fuentes y vuelve a generar; o edita `public/` direc
 4. **GitHub**: crea el repo, sube esta carpeta y en Vercel → Settings → Git conecta el repo al proyecto `juntos`
    (o crea el proyecto desde el repo). Con el repo conectado, cada push a `main` despliega.
 
-## Modelo de datos v1
+## Avisos push
+
+`api/notificar.js` corre dos veces al día por cron de Vercel (06:00 y 11:00 UTC; cada espacio recibe en la franja de su mañana) y manda a cada persona sus avisos (cita de mañana/hoy, semana nueva, tarea a su cargo, mal día de ella para la pareja, hito en una semana). Variables en Vercel: `SUPABASE_SERVICE_ROLE_KEY`, `VAPID_PRIVATE_KEY` (la pública está en `config.json`), `CRON_SECRET`. `GET /api/notificar?force=1` con el secreto ignora la franja horaria (para probar). `POST` con el JWT del usuario manda un aviso de prueba.
+
+## Modelo de datos v2 (0005)
+
+`workspaces.pregnancy` (jsonb) + una fila por ítem en `entries (workspace_id, collection, id, data)`. La app monta en memoria el mismo documento de siempre y al guardar solo viajan las filas que cambiaron; el realtime entrega la fila afectada. `workspaces.data` queda como copia histórica de la v1. La conversación con el asistente va en `ai_chats` (privada por persona) y las fotos en el bucket `fotos`.
+
+## Modelo de datos v1 (histórico)
 
 Un embarazo = una fila en `workspaces` con el documento JSON completo (`data`) y un `invite_code`.
 Cada persona es una fila en `workspace_members` con rol `mother` o `partner`. RLS: solo los miembros leen y escriben.
